@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+
+# DB / 런타임 산출물
+*.db
+app/mcp_provider.db
+
+# 로컬 설정/로그
+.env
+*.log
+.DS_Store
+Thumbs.db
+
+# 테스트/잡파일
+.pytest_cache/
+app/static/vendor/_marker.txt
+
+# 업로드 아카이브
+*.zip

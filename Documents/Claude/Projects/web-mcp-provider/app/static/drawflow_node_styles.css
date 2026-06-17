@@ -1,0 +1,116 @@
+/* =====================================================================
+   MCP Provider — Drawflow 노드 카드 스타일 (디자인 토큰 기반)
+   ---------------------------------------------------------------------
+   ⚠ 빨강 노드 버그 수정용. 상태색은 "카드 배경 전체"가 아니라
+     "상단 4px 스트라이프 + 얇은 테두리"에만 적용합니다.
+     red = 실패(error) 전용. 기본/선택을 빨강으로 칠하지 마세요.
+   전제: tokens.css(:root 변수)가 먼저 로드되어 있어야 합니다.
+   ===================================================================== */
+
+/* 1) Drawflow 기본 노드 크롬 제거 — 우리는 '내부 카드'를 직접 스타일링한다 */
+.drawflow .drawflow-node{
+  background: transparent;
+  border: none;
+  padding: 0;
+  box-shadow: none;
+  border-radius: var(--r-lg);
+  width: auto;
+}
+.drawflow .drawflow-node.selected{ box-shadow: none; }   /* 기본 파란 셀렉트 박스 제거 */
+.drawflow .drawflow-node .drawflow_content_node{ width: auto; }
+
+/* 2) 우리 노드 카드 */
+.wf-node{
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  box-shadow: var(--sh-2);
+  overflow: hidden;
+  min-width: 180px;
+  font-family: var(--font-ui);
+}
+.wf-node__stripe{ height: 4px; background: var(--border); }   /* 기본 = 중립. 상태색은 여기에만 */
+.wf-node__body{ padding: 11px 13px; }
+.wf-node__head{ display: flex; align-items: center; gap: 7px; margin-bottom: 8px; }
+.wf-badge{
+  font-family: var(--font-mono);
+  font-size: 9.5px; font-weight: 600;
+  padding: 2px 7px; border-radius: var(--r-sm);
+  flex-shrink: 0;
+}
+.wf-badge--get   { color: var(--m-get);    background: var(--m-get-bg); }
+.wf-badge--post  { color: var(--m-post);   background: var(--m-post-bg); }
+.wf-badge--put   { color: var(--m-put);    background: var(--m-put-bg); }
+.wf-badge--patch { color: var(--m-patch);  background: var(--m-patch-bg); }
+.wf-badge--delete{ color: var(--m-delete); background: var(--m-delete-bg); }
+.wf-path{
+  font-family: var(--font-mono);
+  font-size: 10.5px; color: var(--text-3);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1;
+}
+/* 제목 = 경로가 아니라 '사람이 읽는 요약' (경로 중복 금지!) */
+.wf-node__title{ font-size: 13px; font-weight: 600; color: var(--text-1); }
+
+/* 3) 선택 상태 = 초록 테두리 + 링 (빨강/채움 아님) */
+.drawflow-node.selected .wf-node{
+  border: 1.5px solid var(--brand);
+  box-shadow: 0 0 0 3px var(--focus), var(--sh-2);
+}
+.drawflow-node.selected .wf-node__stripe{ background: var(--brand); }
+
+/* 4) 실행 상태 — 노드 카드에 data-status 속성으로 토글 */
+.wf-node[data-status="success"]            { border-color: #BBE6CE; }
+.wf-node[data-status="success"] .wf-node__stripe { background: var(--success); }
+
+.wf-node[data-status="error"]              { border-color: #F3C9C9; }   /* ← 빨강은 '여기'에만 */
+.wf-node[data-status="error"] .wf-node__stripe   { background: var(--danger); }
+
+.wf-node[data-status="skipped"]            { border-style: dashed; opacity: .75; }
+.wf-node[data-status="skipped"] .wf-node__stripe { background: var(--border-strong); }
+
+.wf-node[data-status="running"] .wf-node__stripe {
+  background: linear-gradient(90deg, var(--m-get), #5BA0FF, var(--m-get));
+}
+
+/* 5) 상태 표식(우측 상단): 코드 + 아이콘 — 색만으로 구분 금지 */
+.wf-node__status{ margin-left: auto; display: flex; align-items: center; gap: 3px; font-size: 10px; font-weight: 700; }
+.wf-node__status--success{ color: var(--success); }
+.wf-node__status--error  { color: var(--danger); }
+
+/* 6) start / end 노드 */
+.wf-node--terminal{ display: flex; align-items: center; gap: 9px; padding: 12px 14px; }
+.wf-node--terminal .wf-ico{ width: 24px; height: 24px; border-radius: 7px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.wf-node--start .wf-ico{ background: var(--brand); }
+.wf-node--end   .wf-ico{ background: var(--text-2); }
+.wf-node--terminal .wf-label{ font-size: 13px; font-weight: 700; color: var(--text-1); }
+
+/* =====================================================================
+   노드 내부 HTML (Drawflow addNode 의 html 인자로 넣을 마크업)
+   ---------------------------------------------------------------------
+   api_call 노드:
+
+   <div class="wf-node" data-status="">           // "" | success | error | skipped | running
+     <div class="wf-node__stripe"></div>
+     <div class="wf-node__body">
+       <div class="wf-node__head">
+         <span class="wf-badge wf-badge--get">GET</span>
+         <span class="wf-path">/impo/detail</span>
+         <!-- 실행 후에만:
+         <span class="wf-node__status wf-node__status--success">✓ 200</span> -->
+       </div>
+       <div class="wf-node__title">단지 부과 상세 정보 조회</div>   <!-- 요약! 경로 반복 X -->
+     </div>
+   </div>
+
+   start 노드:
+   <div class="wf-node wf-node--terminal wf-node--start">
+     <span class="wf-ico"><!-- ▶ play svg, fill #fff --></span>
+     <span class="wf-label">시작</span>
+   </div>
+
+   end 노드:
+   <div class="wf-node wf-node--terminal wf-node--end">
+     <span class="wf-ico"><!-- ■ square svg, fill #fff --></span>
+     <span class="wf-label">종료</span>
+   </div>
+   ===================================================================== */
