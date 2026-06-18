@@ -8,7 +8,7 @@ from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
-NodeType = Literal["api_call", "start", "end", "transform"]
+NodeType = Literal["api_call", "start", "end", "transform", "condition", "switch", "merge", "filter"]
 ExecStatus = Literal["running", "success", "failed"]
 NodeStatus = Literal["success", "failed", "skipped"]
 
@@ -49,6 +49,8 @@ class Edge(BaseModel):
     source: str
     target: str
     data_mapping: list[DataMap] = Field(default_factory=list)
+    # condition 노드의 분기 라벨("true"/"false"). 일반 엣지는 None.
+    label: Optional[str] = None
 
 
 class WorkflowGraph(BaseModel):
@@ -74,6 +76,7 @@ class ExecutionResult(BaseModel):
     started_at: Optional[str] = None
     finished_at: Optional[str] = None
     result: Any = None
+    final: Any = None
     logs: list[NodeLog] = Field(default_factory=list)
 
 

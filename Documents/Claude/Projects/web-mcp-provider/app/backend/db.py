@@ -70,7 +70,8 @@ CREATE TABLE IF NOT EXISTS edges (
     edge_key         TEXT NOT NULL,
     source_node_key  TEXT NOT NULL,
     target_node_key  TEXT NOT NULL,
-    data_mapping     TEXT
+    data_mapping     TEXT,
+    label            TEXT
 );
 
 CREATE TABLE IF NOT EXISTS executions (
@@ -101,6 +102,7 @@ COLUMN_MIGRATIONS: list[tuple[str, str, str]] = [
     ("workflows", "mcp_group", "TEXT"),
     ("workflows", "mcp_tool_name", "TEXT"),
     ("nodes", "base_url", "TEXT"),
+    ("edges", "label", "TEXT"),
 ]
 
 

@@ -245,3 +245,88 @@ button{font-family:var(--font-ui);cursor:pointer;}
 .sel-bar{position:absolute;left:50%;bottom:14px;transform:translateX(-50%);display:none;align-items:center;gap:9px;background:var(--text-1);color:#fff;border-radius:var(--r-pill);padding:7px 8px 7px 14px;font-size:12px;font-weight:600;box-shadow:var(--sh-3);z-index:6;}
 .sel-bar .sb-x{border:none;background:rgba(255,255,255,.16);color:#fff;border-radius:var(--r-pill);padding:3px 10px;font-size:11px;font-weight:600;}
 .sel-bar .sb-x:hover{background:rgba(255,255,255,.28);}
+
+/* ── 7단계: 조건 분기(IF) 노드 ───────────────────────── */
+.wf-node.cond .stripe{background:var(--logic-branch,#8B5CF6);}
+.badge.cond-badge{background:var(--logic-branch,#8B5CF6);color:#fff;}
+.cond-ports{display:flex;gap:8px;margin-top:8px;}
+.cond-ports .cport{font:600 9.5px/1 var(--font-mono);padding:2px 7px;border-radius:5px;}
+.cond-ports .cport.t{color:var(--success,#0E9E74);background:var(--brand-weak,#E7F5EF);}
+.cond-ports .cport.f{color:var(--danger,#E5484D);background:var(--danger-weak,#FCEBEC);}
+/* 조건 노드 출력 포트 2개(true=위, false=아래) */
+#drawflow .condition .outputs{display:flex;flex-direction:column;justify-content:space-around;}
+/* 속성 패널 select */
+.field select{width:100%;height:34px;border:1px solid var(--border-strong);border-radius:var(--r-md);background:var(--surface);color:var(--text-1);font-family:var(--font-ui);font-size:12.5px;padding:0 9px;outline:none;}
+.field select:focus{border-color:var(--brand);box-shadow:0 0 0 3px var(--focus);}
+/* 로직 팔레트 비활성 항목 */
+.op.disabled{opacity:.45;cursor:default;pointer-events:none;}
+
+
+/* ── 리턴값 미리보기 ── */
+.ret-hint{font-size:11px;color:var(--text-3);line-height:1.5;margin:0 0 8px;}
+.ret-fields{display:flex;flex-direction:column;gap:3px;max-height:240px;overflow:auto;}
+.ret-row{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:5px 8px;border:1px solid var(--border);border-radius:var(--r-md);cursor:pointer;background:var(--surface);}
+.ret-row:hover{background:var(--surface-3);border-color:var(--brand);}
+.ret-path{font-family:var(--font-mono);font-size:11px;color:var(--text-1);}
+.ret-type{font-family:var(--font-mono);font-size:9.5px;color:var(--text-3);flex-shrink:0;}
+
+
+/* ── 조건 노드 출력 포트 옆 true/false 라벨 ── */
+#drawflow .condition .output{position:relative;}
+#drawflow .condition .output.output_1::after{content:"true";position:absolute;right:100%;margin-right:7px;top:50%;transform:translateY(-50%);font:700 9px/1 var(--font-mono);color:var(--success,#0E9E74);white-space:nowrap;pointer-events:none;}
+#drawflow .condition .output.output_2::after{content:"false";position:absolute;right:100%;margin-right:7px;top:50%;transform:translateY(-50%);font:700 9px/1 var(--font-mono);color:var(--danger,#E5484D);white-space:nowrap;pointer-events:none;}
+
+
+/* ── Switch/Merge/Filter 노드 ── */
+.wf-node.sw .stripe{background:var(--logic-switch,#E8883B);}
+.badge.sw-badge{background:var(--logic-switch,#E8883B);color:#fff;}
+.wf-node.mg .stripe{background:var(--logic-merge,#3B82F6);}
+.badge.mg-badge{background:var(--logic-merge,#3B82F6);color:#fff;}
+.wf-node.ft .stripe{background:var(--logic-filter,#14B8A6);}
+.badge.ft-badge{background:var(--logic-filter,#14B8A6);color:#fff;}
+#drawflow .switch .output{position:relative;}
+.port-label{position:absolute;right:100%;margin-right:7px;top:50%;transform:translateY(-50%);font:700 8.5px/1 var(--font-mono);color:var(--text-2);white-space:nowrap;pointer-events:none;background:var(--surface);padding:0 2px;border-radius:3px;}
+.port-label.def{color:var(--text-3);font-style:italic;}
+.case-row{display:flex;gap:6px;margin-bottom:6px;align-items:center;}
+.case-row .caseVal{flex:1;height:30px;border:1px solid var(--border-strong);border-radius:var(--r-md);background:var(--surface);color:var(--text-1);font-family:var(--font-mono);font-size:12px;padding:0 8px;outline:none;}
+.case-row .caseVal:focus{border-color:var(--brand);box-shadow:0 0 0 3px var(--focus);}
+.case-row .case-del{width:28px;height:28px;flex-shrink:0;}
+
+
+/* ── 로직 노드 실행 결과 줄 ── */
+.lc-result{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:7px 9px;border-radius:var(--r-md);background:var(--surface-3);margin-bottom:8px;}
+.lr-expr{font-family:var(--font-mono);font-size:11px;color:var(--text-1);}
+.lr-arrow{color:var(--text-3);}
+.lr-val{font:700 11px/1 var(--font-mono);padding:3px 9px;border-radius:var(--r-pill);}
+.lr-val.t{color:var(--success,#0E9E74);background:var(--brand-weak,#E7F5EF);}
+.lr-val.f{color:var(--danger,#E5484D);background:var(--danger-weak,#FCEBEC);}
+.lr-val.sw{color:var(--logic-switch,#E8883B);background:#FDF0E3;}
+
+
+/* ── 로그 복사 버튼 ── */
+.logcopy{margin-left:auto;height:26px;padding:0 10px;border-radius:var(--r-md);border:1px solid var(--border-strong);background:var(--surface);color:var(--text-2);font-size:11.5px;font-weight:600;cursor:pointer;}
+.logcopy:hover{background:var(--surface-3);color:var(--text-1);border-color:var(--brand);}
+
+
+/* ── 코드 블록 hover 복사 버튼 ── */
+.codewrap{position:relative;}
+.codecopy{position:absolute;top:6px;right:6px;opacity:0;transition:opacity .12s;width:24px;height:24px;border-radius:6px;border:1px solid var(--border-strong);background:var(--surface);color:var(--text-2);font-size:12px;line-height:1;cursor:pointer;z-index:3;display:flex;align-items:center;justify-content:center;}
+.codewrap:hover .codecopy{opacity:1;}
+.codecopy:hover{background:var(--surface-3);color:var(--text-1);border-color:var(--brand);}
+
+
+/* ── 변환(Set) 노드 ── */
+.wf-node.xf .stripe{background:var(--logic-transform,#6366F1);}
+.badge.xf-badge{background:var(--logic-transform,#6366F1);color:#fff;}
+.set-row{display:flex;gap:5px;margin-bottom:6px;align-items:center;}
+.set-row .setKey{width:88px;flex-shrink:0;height:30px;border:1px solid var(--border-strong);border-radius:var(--r-md);background:var(--surface);color:var(--text-1);font-size:12px;padding:0 8px;outline:none;}
+.set-row .setMode{height:30px;flex-shrink:0;border:1px solid var(--border-strong);border-radius:var(--r-md);background:var(--surface);color:var(--text-1);font-size:11.5px;padding:0 4px;outline:none;}
+.set-row .setVal{flex:1;min-width:0;height:30px;border:1px solid var(--border-strong);border-radius:var(--r-md);background:var(--surface);color:var(--text-1);font-family:var(--font-mono);font-size:11.5px;padding:0 8px;outline:none;}
+.set-row .set-del{width:28px;height:28px;flex-shrink:0;}
+
+
+/* ── 실행창: 매핑되어 자동 주입되는 파라미터 표시 ── */
+.prow-auto{font-size:11px;color:var(--logic-merge,#3B82F6);font-style:italic;align-self:center;}
+
+
+.run-note{font-size:11.5px;color:var(--logic-merge,#3B82F6);margin:0 0 10px;line-height:1.5;padding:8px 10px;background:var(--logic-merge-bg,#E8F1FE);border-radius:var(--r-md);}

@@ -102,6 +102,16 @@ def list_operations(spec_id: int) -> list[dict]:
         conn.close()
 
 
+def get_spec_raw(spec_id: int) -> Optional[str]:
+    """스펙 원문(raw_content) — $ref 해소용."""
+    conn = connect()
+    try:
+        row = conn.execute("SELECT raw_content FROM specs WHERE id=?", (spec_id,)).fetchone()
+        return row["raw_content"] if row else None
+    finally:
+        conn.close()
+
+
 def list_specs() -> list[dict]:
     conn = connect()
     try:

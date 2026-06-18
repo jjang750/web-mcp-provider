@@ -149,7 +149,16 @@ async def call_tool(name: str, arguments: dict | None) -> list[types.TextContent
         auth=None,
         operation_resolver=specs_repo.get_operation,
     )
-    return [types.TextContent(type="text", text=json.dumps(result, ensure_ascii=False, indent=2))]
+    if result.get("status") == "success":
+        payload = result.get("final")
+    else:
+        failed = next((l for l in result.get("logs", []) if l.get("status") == "failed"), None)
+        payload = {
+            "status": "failed",
+            "node": failed.get("node_key") if failed else None,
+            "error": failed.get("error") if failed else None,
+        }
+    return [types.TextContent(type="text", text=json.dumps(payload, ensure_ascii=False, indent=2))]
 
 
 async def main() -> None:

@@ -5,6 +5,7 @@
 - start 출력 = initial_input ($). 엣지 data_mapping($.x → params.path.x)로 상류 출력 주입.
 - base_url 우선순위: node.base_url → operation.base_url → DEFAULT_BASE_URL.
 - JSONPath 부분집합: $, 점 접근($.a.b), 인덱스($.a[0].b).
+- condition 노드(IF): 조건 평가 → true/false 분기, 미선택 분기의 배타적 하류 스킵.
 """
 from __future__ import annotations
 
@@ -112,8 +113,29 @@ def validate_graph(graph: dict) -> None:
     topological_order(graph)  # 사이클 검증
 
 
+def _deep_find(obj: Any, key: str):
+    """obj(dict/list) 에서 key 에 해당하는 스칼라 값을 찾음(상위 우선, 그다음 중첩). (값, 찾음여부)."""
+    if isinstance(obj, dict):
+        if key in obj and not isinstance(obj[key], (dict, list)):
+            return obj[key], True
+        for v in obj.values():
+            r, ok = _deep_find(v, key)
+            if ok:
+                return r, True
+    elif isinstance(obj, list):
+        for v in obj:
+            r, ok = _deep_find(v, key)
+            if ok:
+                return r, True
+    return None, False
+
+
 def _incoming_edges(graph: dict, node_id: str) -> list[dict]:
     return [e for e in graph.get("edges", []) if e["target"] == node_id]
+
+
+def _outgoing_edges(graph: dict, node_id: str) -> list[dict]:
+    return [e for e in graph.get("edges", []) if e["source"] == node_id]
 
 
 def _descendants(graph: dict, start: str) -> set[str]:
@@ -127,6 +149,101 @@ def _descendants(graph: dict, start: str) -> set[str]:
         seen.add(n)
         stack.extend(adj.get(n, []))
     return seen
+
+
+def _descendants_incl(graph: dict, start: str) -> set[str]:
+    """start 자신 포함 하류 노드 집합."""
+    return {start} | _descendants(graph, start)
+
+
+# ---------- 조건 평가 ----------
+def _as_bool(v: Any):
+    """bool 또는 'true'/'false'/'1'/'0'/'yes'/'no' → bool, 아니면 None."""
+    if isinstance(v, bool):
+        return v
+    s = str(v).strip().lower()
+    if s in ("true", "1", "yes"):
+        return True
+    if s in ("false", "0", "no"):
+        return False
+    return None
+
+
+def _coerce_eq(lhs: Any, rhs: Any) -> bool:
+    if lhs == rhs:
+        return True
+    # bool ↔ "true"/"false" 문자열 비교 관용 (예: JSON true == 우변 "true")
+    if isinstance(lhs, bool) or isinstance(rhs, bool):
+        bl, br = _as_bool(lhs), _as_bool(rhs)
+        if bl is not None and br is not None:
+            return bl == br
+    # 숫자/문자 혼합 비교 관용: 문자열 표현으로 한 번 더 비교
+    try:
+        return str(lhs) == str(rhs)
+    except Exception:
+        return False
+
+
+def _typed_eq(lhs: Any, rhs_raw: Any, rtype: str) -> bool:
+    """우변 타입(rtype)에 맞춰 == 비교. auto 는 기존 관용 비교(_coerce_eq)."""
+    if rtype == "string":
+        return str(lhs) == ("" if rhs_raw is None else str(rhs_raw))
+    if rtype == "number":
+        try:
+            return float(lhs) == float(rhs_raw)
+        except (TypeError, ValueError):
+            return False
+    if rtype == "boolean":
+        bl, br = _as_bool(lhs), _as_bool(rhs_raw)
+        return bl is not None and br is not None and bl == br
+    if rtype == "null":
+        return lhs is None
+    return _coerce_eq(lhs, rhs_raw)
+
+
+def _cond_expr(cond: dict) -> str:
+    """조건을 사람이 읽는 식 문자열로."""
+    op = (cond.get("op") or "truthy").strip()
+    left = cond.get("left", "$")
+    if op in ("truthy", "falsy", "exists"):
+        return f"{left} ({op})"
+    rtype = cond.get("rtype") or "auto"
+    suffix = "" if rtype == "auto" else f" :{rtype}"
+    return f"{left} {op} {cond.get('right')}{suffix}"
+
+
+def eval_condition(subject: Any, cond: dict) -> bool:
+    """cond = {left, op, right}. left 는 subject 기준 JSONPath($..). 미지정 op 는 truthy."""
+    op = (cond.get("op") or "truthy").strip()
+    left = cond.get("left", "$")
+    lhs = get_by_path(subject, left) if isinstance(left, str) and left.startswith("$") else left
+    if op == "exists":
+        return lhs is not None
+    if op == "truthy":
+        return bool(lhs)
+    if op == "falsy":
+        return not bool(lhs)
+    rhs = cond.get("right")
+    rtype = cond.get("rtype") or "auto"
+    if op in ("==", "eq"):
+        return _typed_eq(lhs, rhs, rtype)
+    if op in ("!=", "ne"):
+        return not _typed_eq(lhs, rhs, rtype)
+    if op in (">", "<", ">=", "<="):
+        if rtype == "string":
+            l, r = str(lhs), ("" if rhs is None else str(rhs))
+        else:
+            try:
+                l, r = float(lhs), float(rhs)
+            except (TypeError, ValueError):
+                return False
+        return {">": l > r, "<": l < r, ">=": l >= r, "<=": l <= r}[op]
+    if op == "contains":
+        try:
+            return rhs in lhs
+        except TypeError:
+            return False
+    raise ValueError(f"지원하지 않는 조건 연산자: {op}")
 
 
 # ---------- 실행 ----------
@@ -180,6 +297,121 @@ def run_workflow(
             emit(log)
             continue
 
+        if ntype == "condition":
+            incoming = _incoming_edges(graph, node_id)
+            subject = outputs.get(incoming[0]["source"]) if incoming else initial_input
+            cond = (node.get("params") or {}).get("condition") or {}
+            try:
+                branch_bool = eval_condition(subject, cond)
+            except Exception as exc:
+                overall_failed = True
+                log = {"node_key": node_id, "seq": seq, "status": "failed",
+                       "input": subject, "output": None,
+                       "error": f"조건 평가 실패: {exc}", "timestamp": _now()}
+                logs.append(log)
+                emit(log)
+                skipped |= _descendants(graph, node_id)
+                continue
+            branch_label = "true" if branch_bool else "false"
+            _left = cond.get("left", "$")
+            _lhs = get_by_path(subject, _left) if isinstance(_left, str) and _left.startswith("$") else _left
+            outputs[node_id] = subject  # 통과(pass-through): 하류 매핑 유지
+
+            # 미선택 분기의 '배타적' 하류만 스킵(선택 분기에서도 도달 가능하면 살림 → Merge 재합류)
+            taken_set: set[str] = set()
+            nottaken_targets: list[str] = []
+            for e in _outgoing_edges(graph, node_id):
+                lbl = (e.get("label") or "").strip().lower()
+                if lbl in ("true", "false") and lbl != branch_label:
+                    nottaken_targets.append(e["target"])
+                else:  # 라벨 없음 또는 선택 분기 → 통과
+                    taken_set |= _descendants_incl(graph, e["target"])
+            for t in nottaken_targets:
+                skipped |= (_descendants_incl(graph, t) - taken_set)
+
+            log = {"node_key": node_id, "seq": seq, "status": "success",
+                   "input": subject,
+                   "output": {"branch": branch_label, "expr": _cond_expr(cond), "value": _lhs, "result": branch_bool},
+                   "error": None, "timestamp": _now()}
+            logs.append(log)
+            emit(log)
+            continue
+
+        if ntype == "switch":
+            incoming = _incoming_edges(graph, node_id)
+            subject = outputs.get(incoming[0]["source"]) if incoming else initial_input
+            sw = (node.get("params") or {}).get("switch") or {}
+            left = sw.get("left", "$")
+            value = get_by_path(subject, left) if isinstance(left, str) and left.startswith("$") else left
+            cases = [str(x) for x in (sw.get("cases") or [])]
+            value_str = "" if value is None else str(value)
+            taken_labels = {value_str} if value_str in cases else {"__default__"}
+            outputs[node_id] = subject  # 통과
+            taken_set: set[str] = set()
+            nottaken_targets: list[str] = []
+            for e in _outgoing_edges(graph, node_id):
+                lbl = e.get("label")
+                if not lbl or lbl in taken_labels:  # 라벨 없음 또는 채택 케이스 → 통과
+                    taken_set |= _descendants_incl(graph, e["target"])
+                else:
+                    nottaken_targets.append(e["target"])
+            for t in nottaken_targets:
+                skipped |= (_descendants_incl(graph, t) - taken_set)
+            matched = value_str if value_str in cases else "__default__"
+            log = {"node_key": node_id, "seq": seq, "status": "success",
+                   "input": subject,
+                   "output": {"switch": value_str, "matched": matched, "expr": str(left)},
+                   "error": None, "timestamp": _now()}
+            logs.append(log)
+            emit(log)
+            continue
+
+        if ntype == "filter":
+            incoming = _incoming_edges(graph, node_id)
+            subject = outputs.get(incoming[0]["source"]) if incoming else initial_input
+            cond = (node.get("params") or {}).get("condition") or {}
+            _fleft = cond.get("left", "$")
+            _flhs = get_by_path(subject, _fleft) if isinstance(_fleft, str) and _fleft.startswith("$") else _fleft
+            try:
+                passed = eval_condition(subject, cond)
+            except Exception as exc:
+                overall_failed = True
+                log = {"node_key": node_id, "seq": seq, "status": "failed",
+                       "input": subject, "output": None,
+                       "error": f"필터 조건 평가 실패: {exc}", "timestamp": _now()}
+                logs.append(log)
+                emit(log)
+                skipped |= _descendants(graph, node_id)
+                continue
+            _fdetail = {"passed": passed, "filtered": not passed, "expr": _cond_expr(cond), "value": _flhs}
+            if passed:
+                outputs[node_id] = subject  # 통과
+                log = {"node_key": node_id, "seq": seq, "status": "success",
+                       "input": subject, "output": _fdetail, "error": None, "timestamp": _now()}
+            else:
+                outputs[node_id] = None
+                skipped |= _descendants(graph, node_id)  # 걸러짐 → 하류 스킵
+                log = {"node_key": node_id, "seq": seq, "status": "success",
+                       "input": subject, "output": _fdetail, "error": None, "timestamp": _now()}
+            logs.append(log)
+            emit(log)
+            continue
+
+        if ntype == "merge":
+            incoming = _incoming_edges(graph, node_id)
+            merged = {}
+            for e in incoming:
+                src = e["source"]
+                if src in outputs:
+                    merged[src] = outputs[src]
+            outputs[node_id] = merged
+            log = {"node_key": node_id, "seq": seq, "status": "success",
+                   "input": {"sources": [e["source"] for e in incoming]},
+                   "output": merged, "error": None, "timestamp": _now()}
+            logs.append(log)
+            emit(log)
+            continue
+
         # api_call / transform / end: 정적 params + 엣지 매핑 주입
         params = copy.deepcopy(node.get("params") or {})
         for ed in _incoming_edges(graph, node_id):
@@ -192,8 +424,19 @@ def run_workflow(
         node_input = params
 
         if ntype == "end":
-            merged = {e["source"]: outputs.get(e["source"]) for e in _incoming_edges(graph, node_id)}
-            outputs[node_id] = merged or initial_input
+            # 같은 상류 노드는 한 번만 수집(예: IF true/false 포트를 둘 다 종료에 연결한 경우 중복 방지)
+            srcs, seen = [], set()
+            for e in _incoming_edges(graph, node_id):
+                s = e["source"]
+                if s in outputs and s not in seen:
+                    seen.add(s)
+                    srcs.append(outputs[s])
+            if len(srcs) == 1:
+                outputs[node_id] = srcs[0]          # 단일 상류 → 그대로 통과(노드ID 래핑 없음)
+            elif len(srcs) > 1:
+                outputs[node_id] = srcs             # 서로 다른 다중 상류 → 리스트
+            else:
+                outputs[node_id] = initial_input
             log = {"node_key": node_id, "seq": seq, "status": "success",
                    "input": node_input, "output": outputs[node_id], "error": None, "timestamp": _now()}
             logs.append(log)
@@ -201,9 +444,28 @@ def run_workflow(
             continue
 
         if ntype == "transform":
-            outputs[node_id] = params
-            log = {"node_key": node_id, "seq": seq, "status": "success",
-                   "input": node_input, "output": params, "error": None, "timestamp": _now()}
+            setmap = (node.get("params") or {}).get("setmap")
+            if setmap:
+                # 상류 응답(subject)에서 필드를 골라 출력 객체 구성
+                incoming = _incoming_edges(graph, node_id)
+                subject = outputs.get(incoming[0]["source"]) if incoming else initial_input
+                built: dict = {}
+                for f in setmap:
+                    key = f.get("key")
+                    if not key:
+                        continue
+                    if f.get("mode") == "literal":
+                        built[key] = f.get("value")
+                    else:  # path
+                        src = f.get("src", "$")
+                        built[key] = get_by_path(subject, src) if (isinstance(src, str) and src.startswith("$")) else src
+                outputs[node_id] = built
+                log = {"node_key": node_id, "seq": seq, "status": "success",
+                       "input": subject, "output": built, "error": None, "timestamp": _now()}
+            else:
+                outputs[node_id] = params
+                log = {"node_key": node_id, "seq": seq, "status": "success",
+                       "input": node_input, "output": params, "error": None, "timestamp": _now()}
             logs.append(log)
             emit(log)
             continue
@@ -222,6 +484,19 @@ def run_workflow(
             emit(log)
             skipped |= _descendants(graph, node_id)
             continue
+
+        # 미입력 파라미터는 상류 노드 출력에서 같은 이름으로 자동 주입(명시 매핑/정적값이 우선)
+        _inc = _incoming_edges(graph, node_id)
+        _up = outputs.get(_inc[0]["source"]) if _inc else None
+        if _up is not None:
+            for _sec in ("path", "query", "header"):
+                _secobj = params.get(_sec)
+                if isinstance(_secobj, dict):
+                    for _k in list(_secobj.keys()):
+                        if _secobj[_k] in (None, ""):
+                            _v, _ok = _deep_find(_up, _k)
+                            if _ok:
+                                _secobj[_k] = _v
 
         base_url = http_client.resolve_base_url(
             node.get("base_url"), op.get("base_url"), default_base_url
@@ -262,6 +537,17 @@ def run_workflow(
             emit(log)
             skipped |= _descendants(graph, node_id)
 
+    # 최종 결과(final): end 노드 출력 우선, 없으면 마지막 성공 노드 출력(노드ID 래핑 없는 깔끔한 값)
+    final = None
+    end_ids = [nid for nid in order if nodes[nid].get("type") == "end" and nid in outputs]
+    if end_ids:
+        final = outputs[end_ids[-1]]
+    else:
+        for lg in reversed(logs):
+            if lg["status"] == "success" and lg["node_key"] in outputs:
+                final = outputs[lg["node_key"]]
+                break
+
     return {
         "execution_id": None,
         "workflow_id": graph.get("workflow_id"),
@@ -269,5 +555,6 @@ def run_workflow(
         "started_at": started_at,
         "finished_at": _now(),
         "result": outputs,
+        "final": final,
         "logs": logs,
     }

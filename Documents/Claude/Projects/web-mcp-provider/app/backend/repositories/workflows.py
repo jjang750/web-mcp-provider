@@ -92,11 +92,13 @@ def _node_row_to_wire(row) -> dict:
 
 
 def _edge_row_to_wire(row) -> dict:
+    keys = row.keys()
     return {
         "id": row["edge_key"],
         "source": row["source_node_key"],
         "target": row["target_node_key"],
         "data_mapping": _loads(row["data_mapping"], []) or [],
+        "label": row["label"] if "label" in keys else None,
     }
 
 
@@ -172,11 +174,12 @@ def update(
             conn.execute("DELETE FROM edges WHERE workflow_id=?", (workflow_id,))
             for e in edges:
                 conn.execute(
-                    "INSERT INTO edges (workflow_id, edge_key, source_node_key, target_node_key, data_mapping) "
-                    "VALUES (?,?,?,?,?)",
+                    "INSERT INTO edges (workflow_id, edge_key, source_node_key, target_node_key, data_mapping, label) "
+                    "VALUES (?,?,?,?,?,?)",
                     (
                         workflow_id, e["id"], e["source"], e["target"],
                         _dumps(e.get("data_mapping") or []),
+                        e.get("label"),
                     ),
                 )
         conn.execute("UPDATE workflows SET updated_at=? WHERE id=?", (_now(), workflow_id))
