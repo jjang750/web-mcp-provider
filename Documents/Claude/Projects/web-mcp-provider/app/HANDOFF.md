@@ -183,3 +183,46 @@ BUILD_GUIDELINES §8 자가점검 1~4 프로그램 검증 통과(깨진 var() 0,
 - 화면: /logs (templates/logs.html, 자체 완결) — 출처 필터(전체/MCP/웹), 좌측 목록(출처·워크플로우·도구·시간·상태) · 우측 상세(노드별 INPUT/OUTPUT/ERROR). 메인 토픽바에 "📋 실행 로그" 링크. app.py /logs 라우트.
 - 검증: pytest 41 passed. e2e: 웹+MCP 실행 저장→목록 2건(sources web/mcp, tool 표시), /·/logs 200.
 - ★함정 재발: index.html topbar Edit가 파일 끝 truncate(끝 줄·{% endraw %}·닫는태그 소실, 실행 중 서버는 캐시 템플릿이라 정상처럼 보였음). bash로 꼬리 복원. 대형 인라인 템플릿은 Edit 후 반드시 raw/endraw 균형+inline JS node --check 확인.
+
+================================================================
+## ★ 최신 인수인계 요약 (2026-06-17, 이 섹션이 가장 최신)
+================================================================
+
+### 완료 상태 (모두 동작·검증됨, pytest 41 passed)
+- 1~6단계: 스캐폴드/엔진/리포지토리/라우터/에디터/MCP 노출 + 메인 목록 — 완료.
+- 7단계 제어 흐름: **분기(IF) · 스위치(Switch, 케이스 최대10+default) · 병합(Merge) · 필터(Filter) · 변환(Set)** — 완료.
+- 조건 평가: 연산자 풀세트 + bool↔문자열 관용비교 + **우변 타입(rtype: auto/string/number/boolean/null)**.
+- 실행 UX: **진입 노드만 입력**, 하류 노드는 상류 OUTPUT에서 동명 값 **자동 주입**(executor `_deep_find`; 명시 매핑·정적값 우선). 실행창에 자동주입 항목 표시(mappedTargets).
+- 종료/결과: 단일 상류 통과(노드ID 래핑 제거)·동일 상류 중복 제거, 실행결과 `final` + MCP는 final만 반환.
+- 실행 로그: 노드명·평가결과·INPUT/OUTPUT, hover 복사(execCommand 폴백).
+- 리턴값 미리보기: `engine/schema_fields.py`로 응답스키마 $ref 평탄화 → 속성패널 JSONPath 목록/예시(클릭 복사).
+- **감사 로그 `/logs`**: 웹/MCP 실행 이력(출처·도구명·시간·상태)+필터+상세. MCP call_tool 이 exec_repo.save(source="mcp", tool_name).
+
+### 핵심 파일 포인터
+- 엔진 로직 전부: `engine/executor.py` (노드 타입별 분기 처리·조건평가 `_typed_eq`/`eval_condition`·자동주입·final).
+- 응답 평탄화: `engine/schema_fields.py` + `GET /api/operations/{id}/response-fields`.
+- 감사 로그: `repositories/executions.py`(save/list_recent/get), `routers/executions.py`(GET /api/executions[/{id}]), `templates/logs.html`, app.py `/logs`.
+- 프론트 동작: **`templates/editor.html`** (canvas.js·style.css **인라인** — 여기를 고쳐야 화면 반영됨), 참고용 사본 `static/canvas.js`·`static/style.css`.
+- MCP: `backend/mcp_server.py` (stdio, 도구 빌드/호출/감사저장).
+
+### 실행/검증
+- 앱: `cd app && PYTHONPATH=. uvicorn backend.app:app --port 9000` (provider :9000).
+- 더미 API: `PYTHONPATH=. uvicorn tools.dummy_api:app --port 8000`.
+- 테스트: `PYTHONPATH=. python -m pytest tests -q` → **41 passed**.
+- MCP Inspector: `npx @modelcontextprotocol/inspector .\.venv\Scripts\python.exe -m backend.mcp_server` (README 참고).
+
+### ★ 반드시 지킬 함정 (메모리 web-mcp-provider-env 와 동일)
+1. **Write/Edit 도구가 대형 파일을 디스크에서 truncate** → 큰 파일·다수 편집은 `bash cat > / python`로 정본 작성 후 `wc`/`node --check`/`ast.parse` 검증. (이번 세션에 index.html 끝이 잘려 복구함.)
+2. **editor.html / index.html 은 CSS·JS 인라인** → static/ 만 고치면 화면 무반영. 두 곳 동기 또는 editor.html 직접 수정. 변경 후 `{% raw %}/{% endraw %}` 균형 + 인라인 JS node --check 필수.
+3. **실행 중 uvicorn 은 Jinja 템플릿을 캐시** → 파일이 깨져도 화면은 정상처럼 보일 수 있음. 재시작 시 드러남.
+4. **MCP 호출이 /logs 에 보이려면 MCP 서버·웹앱이 같은 DB**(MCP_DB_PATH 또는 기본 app/mcp_provider.db). 코드 변경 후 **MCP 클라이언트 재시작** 필요(도구목록·저장로직 반영).
+5. 샌드박스: SOCKS 프록시(trust_env=False 기본), CDN 차단(vendor 로컬), bash 파일삭제 권한거부.
+
+### 남은 백로그 (다음 세션 후보)
+- **Loop/ForEach·Batch 노드**: 사이클 실행 필요 → executor 의 토폴로지 1패스 모델 재설계(서브그래프 반복). 별도 플랜 필요.
+- **MCP 입력 스키마의 분기 인지**: 현재 build_input_schema 는 start 직결 api 노드만 스캔 → switch/merge 거친 하류 api 의 필수 파라미터는 누락될 수 있음.
+- 실행 이력에서 재실행(replay), 로그 보존기간/페이지네이션, 변환 노드 타입 캐스팅 옵션.
+- 시안 1:1 픽셀 미세조정(BUILD_GUIDELINES §8.5 육안 비교).
+
+### 미커밋 주의
+- git 커밋/푸시는 **로컬에서** 수행(샌드박스 .git 접근 불가). `.gitignore` 로 mcp_provider.db·__pycache__·.venv 제외.
