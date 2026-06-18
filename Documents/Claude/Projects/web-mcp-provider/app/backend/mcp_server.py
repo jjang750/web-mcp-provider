@@ -15,6 +15,7 @@ import re
 from backend.db import init_db
 from backend.repositories import specs as specs_repo
 from backend.repositories import workflows as wf_repo
+from backend.repositories import executions as exec_repo
 from engine import executor
 
 import mcp.types as types
@@ -149,6 +150,10 @@ async def call_tool(name: str, arguments: dict | None) -> list[types.TextContent
         auth=None,
         operation_resolver=specs_repo.get_operation,
     )
+    try:
+        exec_repo.save(result, source="mcp", tool_name=name)  # 감사 로그
+    except Exception:
+        pass
     if result.get("status") == "success":
         payload = result.get("final")
     else:

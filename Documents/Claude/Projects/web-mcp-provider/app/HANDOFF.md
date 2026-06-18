@@ -173,3 +173,13 @@ BUILD_GUIDELINES §8 자가점검 1~4 프로그램 검증 통과(깨진 var() 0,
 - 프론트(editor.html 인라인+canvas.js): 실행창이 **진입 노드(상류에 api/transform 없는 노드)만 입력 폼으로 표시**, 하류 API 개수는 "이전 노드 OUTPUT 자동 사용" 안내(run-note). hasUpstreamProducer로 판정.
 - 클립보드: 비보안 컨텍스트(IP/HTTP) 대비 copyText+fallbackCopy(execCommand) 폴백 추가.
 - 검증: pytest **41 passed**(자동 주입 1 신규). e2e: a1→switch($.data.aptcd)→a2(매핑 없음) 에서 a2 query={aptcd,dong} 자동 주입 확인.
+
+## 감사 로그(Audit) — MCP/웹 실행 이력 (2026-06-17)
+- 요구: 메인에서 MCP 호출 등 실행 이력을 audit 로그로 확인.
+- DB: executions 에 source(web|mcp)·tool_name 컬럼 + 마이그레이션.
+- 리포지토리: exec_repo.save(result, source, tool_name), list_recent(limit, source) (워크플로우명 JOIN), get() 에 source/tool_name.
+- 기록: /run → source="web", MCP call_tool → exec_repo.save(source="mcp", tool_name) (같은 SQLite 파일 공유, MCP_DB_PATH 일치 필요).
+- API: GET /api/executions(목록, ?source=mcp|web&limit=), GET /api/executions/{id}(상세).
+- 화면: /logs (templates/logs.html, 자체 완결) — 출처 필터(전체/MCP/웹), 좌측 목록(출처·워크플로우·도구·시간·상태) · 우측 상세(노드별 INPUT/OUTPUT/ERROR). 메인 토픽바에 "📋 실행 로그" 링크. app.py /logs 라우트.
+- 검증: pytest 41 passed. e2e: 웹+MCP 실행 저장→목록 2건(sources web/mcp, tool 표시), /·/logs 200.
+- ★함정 재발: index.html topbar Edit가 파일 끝 truncate(끝 줄·{% endraw %}·닫는태그 소실, 실행 중 서버는 캐시 템플릿이라 정상처럼 보였음). bash로 꼬리 복원. 대형 인라인 템플릿은 Edit 후 반드시 raw/endraw 균형+inline JS node --check 확인.

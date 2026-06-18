@@ -20,17 +20,17 @@ def _loads(v: Optional[str], default: Any = None) -> Any:
         return default
 
 
-def save(result: dict) -> int:
-    """ExecutionResult(dict)를 저장하고 execution_id 를 반환·주입."""
+def save(result: dict, source: str = "web", tool_name: Optional[str] = None) -> int:
+    """ExecutionResult(dict)를 저장하고 execution_id 를 반환. source: web|mcp."""
     conn = connect()
     try:
         cur = conn.execute(
-            "INSERT INTO executions (workflow_id, status, started_at, finished_at, result) "
-            "VALUES (?,?,?,?,?)",
+            "INSERT INTO executions (workflow_id, status, started_at, finished_at, result, source, tool_name) "
+            "VALUES (?,?,?,?,?,?,?)",
             (
                 result.get("workflow_id"), result.get("status"),
                 result.get("started_at"), result.get("finished_at"),
-                _dumps(result.get("result")),
+                _dumps(result.get("result")), source, tool_name,
             ),
         )
         exec_id = cur.lastrowid
@@ -51,12 +51,47 @@ def save(result: dict) -> int:
         conn.close()
 
 
+def list_recent(limit: int = 100, source: Optional[str] = None) -> list[dict]:
+    """감사 로그용 최근 실행 목록(워크플로우명 포함)."""
+    conn = connect()
+    try:
+        q = ("SELECT e.id, e.workflow_id, e.status, e.started_at, e.finished_at, "
+             "e.source, e.tool_name, w.name AS wf_name "
+             "FROM executions e LEFT JOIN workflows w ON e.workflow_id = w.id")
+        params: list = []
+        if source == "web":
+            q += " WHERE (e.source = 'web' OR e.source IS NULL)"  # 레거시(컬럼 추가 전) 실행은 웹으로 간주
+        elif source:
+            q += " WHERE e.source = ?"
+            params.append(source)
+        q += " ORDER BY e.id DESC LIMIT ?"
+        params.append(limit)
+        rows = conn.execute(q, params).fetchall()
+        out = []
+        for r in rows:
+            keys = r.keys()
+            out.append({
+                "execution_id": r["id"],
+                "workflow_id": r["workflow_id"],
+                "workflow_name": r["wf_name"],
+                "status": r["status"],
+                "started_at": r["started_at"],
+                "finished_at": r["finished_at"],
+                "source": r["source"] if "source" in keys else None,
+                "tool_name": r["tool_name"] if "tool_name" in keys else None,
+            })
+        return out
+    finally:
+        conn.close()
+
+
 def get(exec_id: int) -> Optional[dict]:
     conn = connect()
     try:
         row = conn.execute("SELECT * FROM executions WHERE id=?", (exec_id,)).fetchone()
         if not row:
             return None
+        keys = row.keys()
         logs = conn.execute(
             "SELECT * FROM execution_logs WHERE execution_id=? ORDER BY seq", (exec_id,)
         ).fetchall()
@@ -66,6 +101,8 @@ def get(exec_id: int) -> Optional[dict]:
             "status": row["status"],
             "started_at": row["started_at"],
             "finished_at": row["finished_at"],
+            "source": row["source"] if "source" in keys else None,
+            "tool_name": row["tool_name"] if "tool_name" in keys else None,
             "result": _loads(row["result"]),
             "logs": [
                 {

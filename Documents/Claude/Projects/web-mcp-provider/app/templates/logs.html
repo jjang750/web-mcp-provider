@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="ko" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>실행 로그 — MCP Provider</title>
+<script>(function(){try{var t=localStorage.getItem('mcp-theme');if(t)document.documentElement.setAttribute('data-theme',t);}catch(e){}})();</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/tokens.css">
+<style>
+*{box-sizing:border-box;}
+html,body{margin:0;min-height:100%;}
+body{font-family:var(--font-ui);background:var(--canvas);color:var(--text-1);}
+button{font-family:var(--font-ui);cursor:pointer;}
+a{color:inherit;}
+.topbar{height:58px;display:flex;align-items:center;gap:12px;padding:0 24px;background:var(--surface);border-bottom:1px solid var(--border);position:sticky;top:0;z-index:10;}
+.brand{display:flex;align-items:center;gap:9px;}
+.brand .logo{width:28px;height:28px;border-radius:8px;background:var(--brand);display:flex;align-items:center;justify-content:center;}
+.brand .logo .sq{width:11px;height:11px;border:2px solid #fff;border-radius:3px;}
+.brand .name{font-size:15px;font-weight:800;color:var(--text-1);}
+.tbtn{height:32px;display:flex;align-items:center;gap:6px;border-radius:var(--r-md);border:1px solid var(--border);background:var(--surface);padding:0 11px;font-size:12px;font-weight:600;color:var(--text-2);text-decoration:none;}
+.tbtn:hover{background:var(--surface-3);}
+.wrap{max-width:1200px;margin:0 auto;padding:28px 24px 64px;}
+.page-head{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;margin-bottom:18px;}
+.page-head h1{margin:0 0 4px;font-size:24px;font-weight:800;letter-spacing:-0.02em;}
+.page-head p{margin:0;font-size:13px;color:var(--text-2);}
+.bar{display:flex;align-items:center;gap:8px;margin-bottom:12px;}
+.seg{display:flex;border:1px solid var(--border-strong);border-radius:var(--r-md);overflow:hidden;}
+.seg button{border:none;background:var(--surface);padding:6px 12px;font-size:12px;font-weight:600;color:var(--text-2);}
+.seg button.active{background:var(--brand);color:#fff;}
+.cols{display:grid;grid-template-columns:1.1fr 1fr;gap:16px;align-items:start;}
+.panel{background:var(--surface);border:1px solid var(--border);border-radius:var(--r-lg);overflow:hidden;}
+.row{display:flex;align-items:center;gap:10px;padding:11px 14px;border-bottom:1px solid var(--surface-3);cursor:pointer;font-size:12.5px;}
+.row:hover{background:var(--surface-3);}
+.row.sel{background:var(--brand-weak);}
+.row .src{font-size:10px;font-weight:700;padding:2px 8px;border-radius:var(--r-pill);flex-shrink:0;}
+.src.mcp{color:#6D45D6;background:#F0EBFF;}
+.src.web{color:var(--text-2);background:var(--surface-3);}
+.row .nm{font-weight:600;color:var(--text-1);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.row .tool{font-family:var(--font-mono);font-size:10.5px;color:var(--text-3);}
+.row .st{margin-left:auto;font-size:10px;font-weight:700;padding:2px 8px;border-radius:var(--r-pill);flex-shrink:0;}
+.st.success{color:var(--success);background:var(--brand-weak);}
+.st.failed{color:var(--danger);background:var(--danger-weak);}
+.row .ts{font-size:11px;color:var(--text-3);flex-shrink:0;}
+.detail{padding:14px;font-size:12.5px;}
+.detail .dh{font-size:13px;font-weight:700;margin-bottom:10px;}
+.lc{border:1px solid var(--border);border-radius:var(--r-md);margin-bottom:8px;overflow:hidden;}
+.lc-h{display:flex;align-items:center;gap:8px;padding:8px 10px;background:var(--surface-2);font-size:12px;}
+.lc-h .c{width:18px;height:18px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff;font-size:11px;flex-shrink:0;}
+.lc-b{padding:8px 10px;border-top:1px solid var(--surface-3);}
+.lbl{font-size:9.5px;font-weight:700;letter-spacing:.04em;color:var(--text-3);margin:6px 0 3px;}
+.code{font-family:var(--font-mono);font-size:11px;white-space:pre-wrap;word-break:break-all;background:var(--surface-2);border-radius:6px;padding:8px;max-height:240px;overflow:auto;}
+.empty{padding:40px 20px;text-align:center;color:var(--text-3);font-size:13px;}
+.muted{color:var(--text-3);}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <div class="brand"><div class="logo"><div class="sq"></div></div><span class="name">MCP Provider</span></div>
+  <div style="display:flex;align-items:center;gap:10px;margin-left:auto;">
+    <a class="tbtn" href="/">← 워크플로우</a>
+    <button class="tbtn" id="themeBtn"><span id="themeIcon">🌗</span><span id="themeLabel">라이트</span></button>
+  </div>
+</div>
+<div class="wrap">
+  <div class="page-head">
+    <div><h1>실행 로그</h1><p>워크플로우 실행 및 MCP 도구 호출 감사 로그</p></div>
+    <button class="tbtn" id="reload">↻ 새로고침</button>
+  </div>
+  <div class="bar">
+    <div class="seg" id="seg">
+      <button data-src="" class="active">전체</button>
+      <button data-src="web">웹 실행</button>
+      <button data-src="mcp">MCP 호출</button>
+    </div>
+    <span class="muted" id="count" style="font-size:12px;"></span>
+  </div>
+  <div class="cols">
+    <div class="panel" id="list"><div class="empty">불러오는 중…</div></div>
+    <div class="panel" id="detail"><div class="empty">왼쪽에서 실행을 선택하세요.</div></div>
+  </div>
+</div>
+<script>
+{% raw %}
+"use strict";
+var curSource = "";
+var selId = null;
+var esc = function (s) { return String(s == null ? "" : s).replace(/[&<>"]/g, function (c) { return ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]); }); };
+function fmtTime(t) { if (!t) return ""; try { var d = new Date(t); return isNaN(d) ? t : d.toLocaleString("ko-KR"); } catch (e) { return t; } }
+function jsonBlock(v) { if (v === undefined || v === null || v === "") return '<div class="code muted">—</div>'; return '<div class="code">' + esc(typeof v === "string" ? v : JSON.stringify(v, null, 2)) + "</div>"; }
+
+async function loadList() {
+  var list = document.getElementById("list");
+  list.innerHTML = '<div class="empty">불러오는 중…</div>';
+  var url = "/api/executions?limit=200" + (curSource ? "&source=" + curSource : "");
+  var rows;
+  try { rows = await fetch(url).then(function (r) { return r.json(); }); }
+  catch (e) { list.innerHTML = '<div class="empty">목록을 불러오지 못했습니다.</div>'; return; }
+  document.getElementById("count").textContent = rows.length + "건";
+  if (!rows.length) { list.innerHTML = '<div class="empty">실행 기록이 없습니다.</div>'; return; }
+  list.innerHTML = rows.map(function (r) {
+    var src = (r.source || "web");
+    var st = r.status === "success" ? "success" : "failed";
+    return '<div class="row" data-id="' + r.execution_id + '">' +
+      '<span class="src ' + src + '">' + (src === "mcp" ? "MCP" : "웹") + '</span>' +
+      '<span class="nm">' + esc(r.workflow_name || ("워크플로우 #" + r.workflow_id)) + '</span>' +
+      (r.tool_name ? '<span class="tool">' + esc(r.tool_name) + '</span>' : '') +
+      '<span class="ts">' + esc(fmtTime(r.started_at)) + '</span>' +
+      '<span class="st ' + st + '">' + (st === "success" ? "성공" : "실패") + '</span></div>';
+  }).join("");
+  list.querySelectorAll(".row").forEach(function (el) {
+    el.addEventListener("click", function () {
+      list.querySelectorAll(".row").forEach(function (x) { x.classList.remove("sel"); });
+      el.classList.add("sel");
+      loadDetail(el.getAttribute("data-id"));
+    });
+  });
+}
+
+async function loadDetail(id) {
+  selId = id;
+  var box = document.getElementById("detail");
+  box.innerHTML = '<div class="empty">불러오는 중…</div>';
+  var d;
+  try { d = await fetch("/api/executions/" + id).then(function (r) { return r.json(); }); }
+  catch (e) { box.innerHTML = '<div class="empty">상세를 불러오지 못했습니다.</div>'; return; }
+  var head = '<div class="detail"><div class="dh">실행 #' + d.execution_id +
+    ' · ' + ((d.source || "web") === "mcp" ? "MCP 호출" : "웹 실행") +
+    (d.tool_name ? ' · <span class="muted">' + esc(d.tool_name) + '</span>' : '') + '</div>' +
+    '<div class="muted" style="font-size:11.5px;margin-bottom:10px;">' + esc(fmtTime(d.started_at)) + ' → ' + esc(fmtTime(d.finished_at)) + ' · 상태: ' + esc(d.status) + '</div>';
+  var cards = (d.logs || []).map(function (l) {
+    var ok = l.status === "success", skip = l.status === "skipped";
+    var col = ok ? "var(--success)" : (skip ? "var(--border-strong)" : "var(--danger)");
+    var ic = ok ? "✓" : (skip ? "–" : "!");
+    return '<div class="lc"><div class="lc-h"><span class="c" style="background:' + col + '">' + ic + '</span>' +
+      '<span style="font-weight:600;">' + esc(l.node_key) + '</span>' +
+      '<span class="muted" style="margin-left:auto;font-size:11px;">' + esc(l.status) + '</span></div>' +
+      '<div class="lc-b"><div class="lbl">INPUT</div>' + jsonBlock(l.input) +
+      '<div class="lbl">OUTPUT</div>' + jsonBlock(l.output) +
+      (l.error ? '<div class="lbl">ERROR</div><div class="code" style="color:var(--danger)">' + esc(l.error) + '</div>' : '') + '</div></div>';
+  }).join("");
+  box.innerHTML = head + (cards || '<div class="muted">로그 없음</div>') + '</div>';
+}
+
+document.getElementById("seg").addEventListener("click", function (e) {
+  var b = e.target.closest("button"); if (!b) return;
+  curSource = b.getAttribute("data-src");
+  document.querySelectorAll("#seg button").forEach(function (x) { x.classList.toggle("active", x === b); });
+  loadList();
+});
+document.getElementById("reload").addEventListener("click", loadList);
+document.getElementById("themeBtn").addEventListener("click", function () {
+  var html = document.documentElement, dark = html.getAttribute("data-theme") === "dark";
+  html.setAttribute("data-theme", dark ? "light" : "dark");
+  document.getElementById("themeIcon").textContent = dark ? "🌗" : "🌙";
+  document.getElementById("themeLabel").textContent = dark ? "라이트" : "다크";
+  try { localStorage.setItem("mcp-theme", dark ? "light" : "dark"); } catch (e) {}
+});
+if (document.documentElement.getAttribute("data-theme") === "dark") { document.getElementById("themeIcon").textContent = "🌙"; document.getElementById("themeLabel").textContent = "다크"; }
+loadList();
+{% endraw %}
+</script>
+</body>
+</html>

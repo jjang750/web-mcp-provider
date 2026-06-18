@@ -8,6 +8,12 @@ from backend.repositories import executions as exec_repo
 router = APIRouter(prefix="/api", tags=["executions"])
 
 
+@router.get("/executions")
+def list_executions(limit: int = 100, source: str | None = None):
+    """감사 로그 — 최근 실행 목록(source: web|mcp)."""
+    return exec_repo.list_recent(limit=limit, source=source)
+
+
 @router.get("/executions/{execution_id}")
 def get_execution(execution_id: int):
     res = exec_repo.get(execution_id)

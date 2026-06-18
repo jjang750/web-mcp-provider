@@ -80,7 +80,9 @@ CREATE TABLE IF NOT EXISTS executions (
     status       TEXT,
     started_at   TEXT,
     finished_at  TEXT,
-    result       TEXT
+    result       TEXT,
+    source       TEXT,
+    tool_name    TEXT
 );
 
 CREATE TABLE IF NOT EXISTS execution_logs (
@@ -103,6 +105,8 @@ COLUMN_MIGRATIONS: list[tuple[str, str, str]] = [
     ("workflows", "mcp_tool_name", "TEXT"),
     ("nodes", "base_url", "TEXT"),
     ("edges", "label", "TEXT"),
+    ("executions", "source", "TEXT"),
+    ("executions", "tool_name", "TEXT"),
 ]
 
 

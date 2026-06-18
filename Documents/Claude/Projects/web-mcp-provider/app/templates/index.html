@@ -123,6 +123,7 @@ button{font-family:var(--font-ui);cursor:pointer;}
     <span class="tag">워크플로우</span>
   </div>
   <div style="display:flex;align-items:center;gap:10px;margin-left:auto;">
+    <a class="theme-btn" href="/logs" style="text-decoration:none;"><span>📋</span><span>실행 로그</span></a>
     <button class="theme-btn" id="themeBtn"><span id="themeIcon">🌗</span><span id="themeLabel">라이트</span></button>
     <div class="avatar">A</div>
   </div>
@@ -238,7 +239,8 @@ const dz=$('dropZone');
 dz.addEventListener('drop',e=>{if(e.dataTransfer.files[0])uploadFile(e.dataTransfer.files[0]);});
 $('themeBtn').addEventListener('click',()=>{const html=document.documentElement,dark=html.getAttribute('data-theme')==='dark';html.setAttribute('data-theme',dark?'light':'dark');$('themeIcon').textContent=dark?'🌗':'🌙';$('themeLabel').textContent=dark?'라이트':'다크';try{localStorage.setItem('mcp-theme',dark?'light':'dark');}catch(e){}});
 (function(){if(document.documentElement.getAttribute('data-theme')==='dark'){$('themeIcon').textContent='🌙';$('themeLabel').textContent='다크';}})();
-['createOverlay','delOverlay'].forEach(id=>$(id).addEventListener('click',e=>{if(e.target===$(id))$(id).classList.remove('show');}));
+['createOverlay','delOverlay'].forEach(id=>$(id).addEventListener('click',e=>{if(e.target===$(id)){if(id==='createOverlay')closeCreate();else closeDel();}}));
+const _si=$('searchInput');if(_si)_si.addEventListener('input',render);
 load();
 {% endraw %}
 </script>

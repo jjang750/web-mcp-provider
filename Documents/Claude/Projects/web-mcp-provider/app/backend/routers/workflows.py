@@ -69,7 +69,7 @@ def run_workflow(workflow_id: int, req: RunRequest):
         auth=auth,
         operation_resolver=specs_repo.get_operation,
     )
-    exec_id = exec_repo.save(result)
+    exec_id = exec_repo.save(result, source="web")
     result["execution_id"] = exec_id
     return result
 

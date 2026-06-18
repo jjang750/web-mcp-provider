@@ -47,6 +47,11 @@ def index(request: Request):
     return render(request, "index.html")
 
 
+@app.get("/logs", response_class=HTMLResponse)
+def logs(request: Request):
+    return render(request, "logs.html")
+
+
 @app.get("/editor/{workflow_id}", response_class=HTMLResponse)
 def editor(request: Request, workflow_id: int):
     return render(request, "editor.html", workflow_id=workflow_id)
