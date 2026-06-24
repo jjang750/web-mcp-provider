@@ -226,3 +226,122 @@ BUILD_GUIDELINES §8 자가점검 1~4 프로그램 검증 통과(깨진 var() 0,
 
 ### 미커밋 주의
 - git 커밋/푸시는 **로컬에서** 수행(샌드박스 .git 접근 불가). `.gitignore` 로 mcp_provider.db·__pycache__·.venv 제외.
+
+================================================================
+## ★★ MCP 입력 스키마 분기 인지 (2026-06-18, 이 섹션이 가장 최신)
+================================================================
+
+### 이번 주
+- 백로그 "MCP 입력 스키마의 분기 인지" 해결. 원인→조치→검증→재발방지 순.
+- **원인:** `backend/mcp_server.py build_input_schema` 가 start 에 **직접 연결된 노드만** 스캔 → switch/condition/merge/filter 를 거친 하류 api 노드의 필수 파라미터가 입력 스키마에서 누락 → MCP 클라이언트가 어떤 인자를 줘야 할지 알 수 없었음.
+- **조치(executor 자동주입 로직과 정합):**
+  - 스캔 범위를 start 에서 **전방 도달 가능한 모든 api 노드**로 확장(`_forward_reachable`).
+  - **진입 api 노드만** 포함: 상류에 api/transform 생산자가 있으면 executor 가 동명 파라미터를 자동주입하므로 스키마에서 제외(`_has_upstream_producer`). 에디터 실행 UX(`hasUpstreamProducer`)와 동일 기준.
+  - 정적값/엣지 `data_mapping` 으로 이미 채워진 파라미터 제외(`_norm_dest` 로 to 표현 정규화).
+  - `required` 는 분기(condition/switch/filter)를 거치지 않고 **무조건 도달**하는 노드만(`_guaranteed_reachable`). 분기 하위 노드는 properties 에는 노출하되 required 에서 제외 → 과도제약 방지.
+  - start 노드 없을 때는 기존 폴백(모든 api, op.required) 유지(하위호환).
+- **검증:** `tests/test_mcp_schema.py` 신규 6케이스 — ①start→switch→api 하류 파라미터 노출(핵심 버그), ②start→api required, ③하류 생산자 노드 자동주입 제외, ④정적값 제외, ⑤엣지매핑 제외, ⑥apply_tool_args 라운드트립. **전체 pytest 47 passed**(기존 41 + 신규 6, 회귀 없음).
+
+### 사용자 테스트(콘솔 / URL)
+콘솔(앱 디렉터리 `app/`, venv 활성화 후):
+```powershell
+# 1) 단위 테스트 — 47 passed 확인
+$env:PYTHONPATH="."; python -m pytest tests -q
+# (분기 인지만) python -m pytest tests/test_mcp_schema.py -q
+
+# 2) MCP Inspector 로 입력 스키마 육안 확인
+npx @modelcontextprotocol/inspector .\venv\Scripts\python.exe -m backend.mcp_server
+```
+URL(에디터에서 분기 워크플로우 구성 후):
+1. `http://localhost:9000/` → 워크플로우 생성 → `/editor/{id}`.
+2. 시작 → 분기(IF) 또는 스위치 → API 노드 연결(API 가 분기 **직후 첫 노드**가 되도록). API 필수 파라미터는 비워둠.
+3. 저장(PUT) → 메인에서 MCP 노출(expose) 토글.
+4. MCP 클라이언트(또는 Inspector) **재시작** → 도구 입력 스키마에 그 API 의 파라미터(`<node_id>.query.<param>` 등)가 **나타나는지** 확인(수정 전에는 누락).
+
+### 핵심 파일 / 신규 헬퍼
+- `backend/mcp_server.py`: `_norm_dest`, `_forward_reachable`, `_guaranteed_reachable`, `_has_upstream_producer`, 재작성된 `build_input_schema`.
+- `tests/test_mcp_schema.py`(신규, `pytest.importorskip("mcp")` 로 mcp 미설치 환경 스킵).
+
+### 이슈 / 리스크
+- 분기 하위 진입 api 의 필수 파라미터는 **required 가 아닌 optional** 로 노출됨(런타임 분기 선택 의존). 클라이언트가 해당 분기를 타는 인자를 제공해야 실제 호출됨. 의도된 동작.
+- MCP 도구 목록·스키마는 서버 기동 시 1회 → **변경 후 MCP 클라이언트 재시작 필요**(기존과 동일).
+- ★함정 재발: **Edit 직후 bash 마운트가 mcp_server.py 구버전(꼬리 누락 158줄)을 stale 캐싱**. 실제 디스크(Read 도구 기준)는 정상 276줄. 런타임 검증은 `/tmp` 복사본에서 수행(메모리 [[web-mcp-provider-env]] 와 동일). 단위 테스트는 정상 통과.
+
+### 다음 주 계획(잔여 백로그)
+- Loop/ForEach·Batch 노드(executor 토폴로지 1패스 → 서브그래프 반복 재설계, 별도 플랜).
+- 실행 이력 재실행(replay)·페이지네이션, 시안 1:1 픽셀 미세조정(BUILD_GUIDELINES §8.5).
+- (선택) merge 노드 하류 진입 api 의 required 정밀화 — 현재는 보수적으로 optional 처리.
+
+### 미커밋 주의(재확인)
+- 본 변경은 `backend/mcp_server.py`, `tests/test_mcp_schema.py` 2파일. git 커밋/푸시는 **로컬에서** 수행.
+
+================================================================
+## ★★★ 실행 로그 페이징 + 검색 (2026-06-18, 이 섹션이 가장 최신)
+================================================================
+
+### 이번 주
+- `/logs`(감사 로그) 화면에 **페이지네이션 + 검색** 추가.
+- **리포지토리**(`backend/repositories/executions.py`):
+  - `_filter_clause(source, q)` 신규 — source 필터 + 검색어 WHERE 절 생성. 검색 대상 = 워크플로우명(`w.name`)·도구명(`e.tool_name`)·상태(`e.status`)·실행ID(`CAST(e.id AS TEXT)`) LIKE.
+  - `list_recent(limit, offset, source, q)` — `offset`·`q` 추가(ORDER BY id DESC LIMIT ? OFFSET ?).
+  - `count_recent(source, q)` 신규 — 페이징 메타용 총 건수(JOIN 포함, 워크플로우명 검색 위해).
+- **라우터**(`backend/routers/executions.py`): `GET /api/executions` 응답이 **list → `{items, total, limit, offset}`** 로 변경. 쿼리 `limit`(기본50·상한200 클램프)·`offset`·`source`·`q`.
+- **프론트**(`templates/logs.html`, 자체 완결): 검색 입력(300ms 디바운스) + 하단 페이지네이션(이전/다음·`page/pages·총 N건`). 페이지 크기 50. 출처/검색 변경 시 offset 0으로 리셋. `renderPager()` 추가, `loadList()` 가 새 응답형식(`data.items`/`data.total`) 사용.
+
+### 검증
+- 신규 `tests/test_logs.py` 5케이스 — ①페이징(7건→3/3/1, id DESC·무중복), ②출처필터, ③검색(도구명/상태/워크플로우명/조합/무매칭), ④ID검색, ⑤API 응답형식(items/total/limit/offset·offset 페이지·limit 상한 클램프).
+- **전체 pytest 52 passed**(기존 47 + 신규 5, 회귀 없음). logs.html 인라인 JS `node --check` 통과, `{% raw %}/{% endraw %}` 균형·닫는 태그 정상(Read 도구 기준).
+
+### 사용자 테스트(콘솔 / URL)
+콘솔(`app/`):
+```powershell
+$env:PYTHONPATH="."; python -m pytest tests -q          # 52 passed
+$env:PYTHONPATH="."; python -m pytest tests/test_logs.py -q
+$env:PYTHONPATH="."; uvicorn backend.app:app --port 9000
+```
+URL:
+1. `http://localhost:9000/logs` 접속.
+2. 상단 검색창에 워크플로우명·도구명·상태(success/failed)·실행ID 입력 → 300ms 후 자동 필터.
+3. 출처 세그먼트(전체/웹/MCP) 전환 시 첫 페이지로.
+4. 목록 하단 **이전/다음** 으로 페이지 이동, `현재/전체 페이지 · 총 N건` 표시 확인.
+   (API 직접 확인: `GET /api/executions?limit=50&offset=0&source=mcp&q=impo` → `{items,total,limit,offset}`.)
+
+### 이슈 / 리스크
+- **API 응답 형식 변경**(list → 객체). 기존 소비자는 `/logs`(logs.html)뿐이며 함께 갱신됨. 외부에서 `/api/executions` 를 list 로 파싱하던 코드가 있으면 `.items` 로 수정 필요.
+- 검색은 단순 LIKE(부분일치, 대소문자: ASCII 무시·한글 그대로). 인덱스 없음 → 데이터 大 시 성능 고려(executions.id 정렬은 PK라 양호).
+- ★함정 재발(동일): **Edit/Write 직후 bash 마운트가 편집 파일을 stale/truncate 캐싱**. 이번에도 `routers/executions.py`(items 누락)·`repositories/executions.py`(get() 잘림)·`logs.html`(endraw 누락 167줄)가 마운트에서 깨져 보였으나 **실제 디스크(Read 도구)는 모두 정상**. 검증은 `/tmp` 복사본에 정본을 덮어써 수행(메모리 [[web-mcp-provider-env]]).
+
+### 다음 주 계획(잔여 백로그)
+- 실행 이력 재실행(replay), 로그 보존기간 정책.
+- Loop/ForEach·Batch 노드(별도 플랜), 시안 1:1 픽셀 미세조정(BUILD_GUIDELINES §8.5).
+- (선택) 검색 고도화: 날짜 범위 필터, 상태 칩 필터.
+
+### 미커밋 주의(재확인)
+- 본 변경 4파일: `backend/repositories/executions.py`, `backend/routers/executions.py`, `templates/logs.html`, `tests/test_logs.py`. git 커밋/푸시는 **로컬에서** 수행.
+
+## 호출 URL 노출 (2026-06-25 추가)
+
+목적: ① 워크플로우 **선택화면 목록**에서 각 워크플로우가 *어디를 호출하는지*, ② **에디터 화면**에서 각 API 노드가 *어떤 URL을 호출하는지* 보이도록.
+
+### 이번 주 (이번 세션 완료분)
+- 백엔드 `repositories/workflows.py`: `list_all()` 응답에 `endpoints`(노드별 `{method, path, url}`, 중복 제거) 추가. URL 우선순위는 executor와 동일하게 `node.base_url → operation.base_url → DEFAULT_BASE_URL`, `engine.http_client.build_url`로 조합. 헬퍼 `_endpoints()` 신설.
+- `backend/models.py`: `WorkflowSummary`에 `endpoints: list[dict]` 필드 추가.
+- `backend/app.py`: `/editor/{id}` 렌더 컨텍스트에 `default_base_url`(=`DEFAULT_BASE_URL`) 주입.
+- `templates/index.html`: 카드에 호출 엔드포인트 목록(메서드 배지 + 전체 URL, 최대 3개 + "외 N개") 표시. `.calls/.call-row/.call-url` 스타일 추가.
+- `templates/editor.html`: ① API 노드 카드에 호출 URL 줄(`.nurl`, 링크 아이콘+URL) 추가, ② 속성 패널에 읽기전용 **호출 URL**(Base URL 입력 시 실시간 갱신) + 적용 시 노드 카드 URL 동기화. `slimOp`에 `base_url` 포함, JS 헬퍼 `joinUrl/effUrl` 추가, 템플릿에 `var DEFAULT_BASE_URL` 주입.
+
+### 검증
+- 콘솔: `/tmp` 복사본에서 `pytest` **52 passed**(회귀 없음).
+- TestClient: `GET /api/workflows` → WF#1 endpoints에 `GET http://localhost:8000/impo/detail`, `/recp/status`, `/insp/status` 정상 노출. `/editor/1` 렌더에 `DEFAULT_BASE_URL = "http://localhost:8000"` 및 `effUrl` 함수 포함 확인.
+- 사용자 테스트(로컬): `cd app && python -m uvicorn backend.app:app --port 9000` 후 → 목록 `http://localhost:9000/` (카드 호출 URL 확인), 에디터 `http://localhost:9000/editor/1` (노드/속성 패널 URL 확인).
+
+### 이슈 / 리스크
+- 표시 URL은 **실행 시 base_url 결정 로직과 동일 규칙**으로 계산되나, 실제 실행 시점의 환경변수 `MCP_DEFAULT_BASE_URL`이 다르면 표시값도 따라감(서버 기동 시점 기준). 노드별 Base URL 오버라이드가 있으면 그 값을 우선 표시.
+- 함정 재발(동일): Edit/Write 직후 **bash 마운트 READ 캐시가 truncate/stale**(app.py `return render(`에서 끊김, workflows.py `conn.close()`→`conn.cl`). 실제 디스크(Read 도구)는 정상. 우회: `mv f f.cb && mv f.cb f` 캐시버스트 후 `/tmp` 복사·검증. 메모리 [[web-mcp-provider-env]].
+
+### 다음 주 계획
+- (선택) 선택화면 카드 URL을 호스트만 축약 표시하는 옵션 / 동일 호스트 그룹핑.
+- 팔레트 항목에도 호스트 표기 여부 검토(현재 path만).
+
+### 미커밋 주의
+- 본 변경 5파일: `backend/repositories/workflows.py`, `backend/models.py`, `backend/app.py`, `templates/index.html`, `templates/editor.html`. git 커밋/푸시는 **로컬에서** 수행.

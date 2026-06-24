@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 from typing import Any, Optional
 
 from backend.db import connect
+from engine.http_client import DEFAULT_BASE_URL, build_url
 
 
 def _dumps(v: Any) -> Optional[str]:
@@ -61,10 +62,37 @@ def list_all() -> list[dict]:
                 (r["id"],),
             ).fetchall()
             s["methods"] = [x["m"] for x in ms if x["m"]]
+            ep_rows = conn.execute(
+                "SELECT o.method AS method, o.path AS path, "
+                "n.base_url AS node_base, o.base_url AS op_base "
+                "FROM nodes n JOIN operations o ON n.operation_id = o.id "
+                "WHERE n.workflow_id=? AND o.path IS NOT NULL ORDER BY n.id",
+                (r["id"],),
+            ).fetchall()
+            s["endpoints"] = _endpoints(ep_rows)
             out.append(s)
         return out
     finally:
         conn.close()
+
+
+def _endpoints(rows) -> list[dict]:
+    """노드별 호출 대상 엔드포인트. base_url 우선순위는 executor와 동일(node→op→DEFAULT)."""
+    out, seen = [], set()
+    for r in rows:
+        base = r["node_base"] or r["op_base"] or DEFAULT_BASE_URL
+        path = r["path"] or ""
+        try:
+            url = build_url(base, path)
+        except Exception:
+            url = (base.rstrip("/") + "/" + path.lstrip("/")) if base else path
+        method = (r["method"] or "GET").upper()
+        key = (method, url)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append({"method": method, "path": path, "url": url})
+    return out
 
 
 def _summary(row) -> dict:

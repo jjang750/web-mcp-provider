@@ -161,6 +161,7 @@ button{font-family:var(--font-ui);cursor:pointer;}
 .wf-node .nhead{display:flex;align-items:center;gap:7px;margin-bottom:8px;}
 .wf-node .path{font-family:var(--font-mono);font-size:10.5px;color:var(--text-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;}
 .wf-node .title{font-size:13px;font-weight:600;color:var(--text-1);}
+.url-display{font-family:var(--font-mono);font-size:11px;color:var(--text-1);background:var(--surface-2);border:1px solid var(--border);border-radius:var(--r-sm);padding:7px 9px;word-break:break-all;line-height:1.5;}
 .wf-node .nstatus{margin-left:auto;display:flex;align-items:center;gap:3px;font-size:10px;font-weight:700;}
 .wf-node .nstatus .scircle{width:14px;height:14px;border-radius:50%;color:#fff;display:flex;align-items:center;justify-content:center;font-size:8px;}
 .wf-node .spinner{width:13px;height:13px;border:2px solid var(--m-get);border-top-color:transparent;border-radius:50%;animation:spin .7s linear infinite;margin-left:auto;}
@@ -461,6 +462,7 @@ button{font-family:var(--font-ui);cursor:pointer;}
 </div></div>
 <script src="/static/vendor/drawflow.min.js"></script>
 <script>
+var DEFAULT_BASE_URL = "{{ default_base_url }}";
 {% raw %}
 /* MCP Provider — 에디터 캔버스 (디자인팀 예제 기준 + 백엔드 연동)
    전역 함수(onclick): openRun, closeRun, runWorkflow, addTerminal, switchPal, switchRT, autoLayout, alignSel, distribute, pickAuth */
@@ -539,7 +541,15 @@ function copyText(txt, okMsg) {
     fallbackCopy(txt, okMsg);  // http(IP) 등 비보안 컨텍스트 폴백
   }
 }
-function apiNodeHTML(op) {
+function joinUrl(base, path) {
+  base = base || DEFAULT_BASE_URL || "";
+  path = path || "";
+  return String(base).replace(/\/+$/, "") + "/" + String(path).replace(/^\/+/, "");
+}
+function effUrl(op, nodeBase) {
+  return joinUrl(nodeBase || (op && op.base_url) || DEFAULT_BASE_URL, op && op.path);
+}
+function apiNodeHTML(op, baseUrl) {
   return '<div class="wf-node" data-status="">' +
     '<div class="stripe"></div><div class="nbody">' +
     '<div class="nhead"><span class="badge ' + mlow(op.method) + '">' + esc((op.method || "GET").toUpperCase()) + "</span>" +
@@ -566,11 +576,11 @@ function seedParams(op) {
   return p;
 }
 
-function slimOp(op) { return { id: op.id, method: op.method, path: op.path, summary: op.summary || op.path }; }
+function slimOp(op) { return { id: op.id, method: op.method, path: op.path, summary: op.summary || op.path, base_url: op.base_url || null }; }
 function addApiNode(op, x, y, params, baseUrl) {
   // Drawflow 가 data 객체의 키로 [df-...] 선택자를 만들므로, $ref 등 특수문자 포함 스키마는 절대 넣지 않는다(슬림 op).
   const data = { op: slimOp(op), params: params || seedParams(op), base_url: baseUrl || null };
-  const id = editor.addNode("api", 1, 1, x, y, "api", data, apiNodeHTML(op));
+  const id = editor.addNode("api", 1, 1, x, y, "api", data, apiNodeHTML(op, baseUrl));
   setDirty(true);
   return id;
 }
@@ -817,7 +827,7 @@ async function loadWorkflow() {
       live = editor.addNode(n.type, n.type === "start" ? 0 : 1, n.type === "start" ? 1 : 0, x, y, n.type, {}, terminalHTML(n.type));
     } else if (n.type === "api_call") {
       const op = opsById[n.operation_id] || { id: n.operation_id, method: "GET", path: n.label || "", summary: n.label };
-      live = editor.addNode("api", 1, 1, x, y, "api", { op: slimOp(op), params: n.params || seedParams(op), base_url: n.base_url || null }, apiNodeHTML(op));
+      live = editor.addNode("api", 1, 1, x, y, "api", { op: slimOp(op), params: n.params || seedParams(op), base_url: n.base_url || null }, apiNodeHTML(op, n.base_url || null));
     } else if (n.type === "condition") {
       const cond = (n.params && n.params.condition) || { left: "$.", op: "==", right: "" };
       live = editor.addNode("condition", 1, 2, x, y, "condition", { params: { condition: cond } }, conditionHTML(cond));
@@ -885,15 +895,18 @@ function showProps(id) {
     const op = node.data.op;
     body.innerHTML =
       '<div class="nhead" style="margin-bottom:14px;"><span class="badge ' + mlow(op.method) + '">' + esc((op.method || "GET").toUpperCase()) + '</span><span style="font-family:var(--font-mono);font-size:11px;color:var(--text-2);">' + esc(op.path) + '</span></div>' +
-      '<div class="field"><label>Base URL</label><input id="pBase" value="' + esc(node.data.base_url || "") + '" placeholder="비우면 자동(오퍼레이션→기본값)"></div>' +
+      '<div class="field"><label>호출 URL</label><div class="url-display"><span class="badge ' + mlow(op.method) + '" style="margin-right:6px;">' + esc((op.method || "GET").toUpperCase()) + '</span><span id="pUrl">' + esc(effUrl(op, node.data.base_url)) + '</span></div></div>' +
+      '<div class="field"><label>Base URL</label><input id="pBase" value="' + esc(node.data.base_url || "") + '" placeholder="비우면 자동(오퍼레이션→기본값: ' + esc(DEFAULT_BASE_URL) + ')"></div>' +
       '<div class="field"><label>파라미터 (params JSON)</label><textarea id="pParams" rows="9">' + esc(JSON.stringify(node.data.params || {}, null, 2)) + "</textarea></div>" +
       '<button class="btn btn-secondary" id="pApply">적용</button>' +
       '<div class="sec-label" style="margin-top:16px;">리턴값 미리보기</div><div id="retBox"><div class="prop-empty">불러오는 중…</div></div>';
     empty.style.display = "none"; body.style.display = "block";
     if (op && op.id != null) loadReturnPreview(op.id);
+    const pBaseEl = document.getElementById("pBase"), pUrlEl = document.getElementById("pUrl");
+    pBaseEl.addEventListener("input", () => { pUrlEl.textContent = effUrl(op, pBaseEl.value.trim() || null); });
     document.getElementById("pApply").addEventListener("click", () => {
       const nd = editor.drawflow.drawflow.Home.data[id];
-      nd.data.base_url = document.getElementById("pBase").value.trim() || null;
+      nd.data.base_url = pBaseEl.value.trim() || null;
       try { nd.data.params = JSON.parse(document.getElementById("pParams").value || "{}"); }
       catch (e) { toast("params JSON 오류: " + e.message, "fail"); return; }
       setDirty(true); toast("적용했습니다");

@@ -114,6 +114,7 @@ class WorkflowSummary(BaseModel):
     updated_at: Optional[str] = None
     node_count: int = 0
     methods: list[str] = Field(default_factory=list)
+    endpoints: list[dict] = Field(default_factory=list)
 
 
 class WorkflowDetail(WorkflowSummary):

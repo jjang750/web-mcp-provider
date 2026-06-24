@@ -7,6 +7,7 @@ from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from backend.db import init_db, list_tables
+from engine.http_client import DEFAULT_BASE_URL
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 STATIC_DIR = BASE_DIR / "static"
@@ -54,4 +55,6 @@ def logs(request: Request):
 
 @app.get("/editor/{workflow_id}", response_class=HTMLResponse)
 def editor(request: Request, workflow_id: int):
-    return render(request, "editor.html", workflow_id=workflow_id)
+    return render(
+        request, "editor.html", workflow_id=workflow_id, default_base_url=DEFAULT_BASE_URL
+    )

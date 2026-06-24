@@ -79,6 +79,11 @@ button{font-family:var(--font-ui);cursor:pointer;}
 .mini.post{color:var(--m-post);background:var(--m-post-bg);}
 .mini.put{color:var(--m-put);background:var(--m-put-bg);}
 .mini.delete{color:var(--m-delete);background:var(--m-delete-bg);}
+.card .calls{margin-top:12px;display:flex;flex-direction:column;gap:5px;}
+.call-row{display:flex;align-items:center;gap:7px;min-width:0;}
+.call-row .mini{flex-shrink:0;}
+.call-url{font-family:var(--font-mono);font-size:10.5px;color:var(--text-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.call-more{font-size:10.5px;color:var(--text-3);padding-left:2px;}
 .card .actions{margin-left:auto;display:flex;gap:4px;opacity:0;transition:opacity .15s;}
 .card:hover .actions{opacity:1;}
 .iconbtn{width:30px;height:30px;border-radius:var(--r-md);border:1px solid var(--border);background:var(--surface);color:var(--text-2);font-size:14px;display:flex;align-items:center;justify-content:center;}
@@ -191,13 +196,23 @@ function render(){
   const grid=$('grid');grid.innerHTML='';
   list.forEach(w=>{
     const expose=!!w.mcp_exposed,group=w.mcp_group||'default',methods=w.methods||[],nodes=w.node_count||0;
+    const endpoints=w.endpoints||[];
     const card=document.createElement('div');card.className='card';
     card.onclick=e=>{if(e.target.closest('.actions'))return;location.href='/editor/'+w.id;};
+    let callsHtml='';
+    if(endpoints.length){
+      const shown=endpoints.slice(0,3);
+      callsHtml='<div class="calls">'+shown.map(ep=>
+        '<div class="call-row"><span class="mini '+esch((ep.method||'get').toLowerCase())+'">'+esch((ep.method||'GET').toUpperCase())+'</span>'+
+        '<span class="call-url" title="'+esch(ep.url)+'">'+esch(ep.url)+'</span></div>').join('')+
+        (endpoints.length>3?'<div class="call-more">외 '+(endpoints.length-3)+'개 호출</div>':'')+'</div>';
+    }
     card.innerHTML=
       '<div class="stripe" style="'+(expose?'':'background:var(--border-strong);')+'"></div>'+
       '<div class="ch"><div style="flex:1;min-width:0;"><div class="ctitle">'+esch(w.name)+'</div>'+
       '<div class="cgroup">MCP 그룹 · '+esch(group)+'</div></div>'+
       '<span class="expose '+(expose?'on':'off')+'"><span class="d"></span>'+(expose?'노출 ON':'비공개')+'</span></div>'+
+      callsHtml+
       '<div class="cfoot"><div class="mini-badges">'+methods.map(m=>'<span class="mini '+m+'">'+m.toUpperCase()+'</span>').join('')+'</div>'+
       '<div class="cmeta" style="margin-left:8px;"><span class="m">노드 '+nodes+'</span><span class="m" style="color:var(--text-3);">· '+rel(w.updated_at)+'</span></div>'+
       '<div class="actions"><button class="iconbtn" title="복제" onclick="dup('+w.id+')">&#10689;</button>'+
