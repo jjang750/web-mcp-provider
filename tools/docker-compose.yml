@@ -1,0 +1,22 @@
+# 더미 API 서버 (:8000) — docker compose
+# 사용:  cd tools && docker compose up --build   (백그라운드: -d)
+services:
+  dummy-api:
+    build: .
+    image: dummy-api
+    container_name: dummy-api
+    ports:
+      # 호스트 18000 → 컨테이너 8000 (호스트 8000 충돌 회피). 접속: http://localhost:18000
+      - "18000:8000"
+    restart: unless-stopped
+    # 역프록시 체인(외부 18800 → NAS 18000 → 컨테이너 8000)에서는 백엔드가 공개 포트(18800)를
+    # 헤더로 복원할 수 없으므로, 공개 URL을 명시해 openapi servers 를 고정한다(포트 누락 방지).
+    environment:
+      DUMMY_PUBLIC_URL: "https://panthip.ddns.net:18800"
+    healthcheck:
+      # slim 이미지에는 curl 이 없어 python 으로 헬스 체크
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
