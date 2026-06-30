@@ -22,3 +22,4 @@ app/static/vendor/_marker.txt
 # 업로드 아카이브
 *.zip
 *.db.bak_*
+*.db.bak_*

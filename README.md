@@ -42,9 +42,11 @@ app/
     schema_fields.py      응답 스키마 $ref 평탄화(리턴값 미리보기)
   templates/              index.html · editor.html · logs.html
   static/                 tokens.css · style.css · canvas.js · vendor/(drawflow)
-  tools/dummy_api.py      테스트용 더미 API(:8000)
   tests/                  pytest (parser·http_client·executor·schema_fields·API 통합)
   mcp_provider.db         SQLite 단일 파일(런타임 생성, git 제외)
+tools/                    ★ 분리된 독립 더미 API 프로젝트(:8000)
+  dummy_api.py            테스트용 더미 API (GET/POST/PUT/PATCH/DELETE)
+  Dockerfile · requirements.txt · .dockerignore · README.md
 ```
 
 ## 설치 & 실행
@@ -59,9 +61,10 @@ set PYTHONPATH=.        # PowerShell: $env:PYTHONPATH="."   |  bash: export PYTH
 uvicorn backend.app:app --port 9000
 ```
 - 브라우저에서 `http://localhost:9000/` 접속. 사내 공유 시 `http://<서버IP>:9000/` 도 가능(클립보드는 execCommand 폴백으로 동작).
-- 워크플로우가 호출할 대상 API가 필요합니다. 테스트용 더미 API:
+- 워크플로우가 호출할 대상 API가 필요합니다. 테스트용 더미 API는 분리된 `../tools` 프로젝트(독립 실행, 상세는 `tools/README.md`):
   ```bash
-  PYTHONPATH=. uvicorn tools.dummy_api:app --port 8000
+  cd ../tools
+  uvicorn dummy_api:app --host 0.0.0.0 --port 8000   # 또는: docker build -t dummy-api . && docker run --rm -p 8000:8000 dummy-api
   ```
 - 더미 API(:8000) ↔ provider(:9000) 포트 구분. 스펙에 `servers`가 없으면 `MCP_DEFAULT_BASE_URL`(기본 `http://localhost:8000`)로 폴백.
 
@@ -117,6 +120,20 @@ PYTHONPATH=. MCP_GROUP=xperp npx @modelcontextprotocol/inspector .venv/bin/pytho
 | `MCP_DEFAULT_BASE_URL` | `http://localhost:8000` | 노드/오퍼레이션에 base_url이 없을 때 폴백 |
 | `MCP_HTTP_TRUST_ENV` | `0` | 1이면 엔진 HTTP 호출에 시스템 프록시(env) 사용 |
 | `MCP_GROUP` / `MCP_SERVER_NAME` | (없음) | MCP 서버 그룹 필터 / 서버 이름 |
+
+## Dry-run (실행 계획 → 확인 → 실행)
+변경성 작업을 곧바로 반영하지 않고 **먼저 실행 계획만 받아 확인**한 뒤 실행하는 패턴을 지원합니다.
+
+- **판정 기준**: api_call 노드의 HTTP 메서드로 조회/변경을 자동 구분(`GET/HEAD/OPTIONS`=조회). 노드의 `read_only`(true/false)로 명시 지정 가능(추론보다 우선).
+- **동작(`dry_run=true`)**: 조회 노드는 실제 호출해 미리보기 데이터를 만들고, 변경 노드는 **호출하지 않고** `planned` 상태로 기록. 응답의 `planned_actions`에 "실행될 호출(method·url·query·body)"이 모입니다. 인증 시크릿은 노출하지 않고 `auth_type`만 표기합니다.
+- **웹 실행**: `POST /api/workflows/{id}/run` 본문에 `{"dry_run": true}` 추가.
+  ```bash
+  curl -s -X POST http://localhost:9000/api/workflows/1/run \
+    -H "Content-Type: application/json" -d '{"dry_run": true, "initial_input": {}}'
+  ```
+  응답에서 `planned_actions` 확인 → 사용자 승인 시 `dry_run` 없이(또는 `false`) 동일 호출로 실제 실행.
+- **MCP 노출**: 각 도구에 boolean 인자 `dry_run`이 자동 추가됩니다. 에이전트는 `dry_run=true`로 계획을 받아 사용자에게 보여주고, 승인 후 `dry_run` 없이 재호출합니다.
+- 기본값은 `dry_run=false`라 기존 호출과 **하위 호환**됩니다. dry-run 실행은 감사 로그에 `source=web-dryrun`/`mcp-dryrun`으로 기록됩니다.
 
 ## 최근 변경 (7단계 — 제어 흐름 & 운영)
 - 제어 흐름 노드 추가: **분기(IF)·스위치(Switch, 최대 10케이스)·병합(Merge)·필터(Filter)·변환(Set)**.
