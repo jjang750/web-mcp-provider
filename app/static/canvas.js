@@ -419,19 +419,61 @@ function showProps(id) {
   switchRT("prop");
   if (node.class === "api") {
     const op = node.data.op;
+    const params = node.data.params || { path: {}, query: {}, header: {}, body: null };
+    const inputSet = new Set(params._input || []);  // "loc.name" 형식
+    // path/query/header 파라미터를 [값 + 고정/입력 토글] 행으로 렌더
+    let prows = "";
+    ["path", "query", "header"].forEach((sec) => {
+      const obj = params[sec] || {};
+      Object.keys(obj).forEach((k) => {
+        const fk = sec + "." + k, on = inputSet.has(fk);
+        prows +=
+          '<div class="pmrow" data-sec="' + sec + '" data-key="' + esc(k) + '" style="display:flex;gap:6px;align-items:center;margin-bottom:6px;">' +
+          '<span style="flex:0 0 30px;font-family:var(--font-mono);font-size:10px;color:var(--text-3);">' + esc(sec) + '</span>' +
+          '<span style="flex:0 0 78px;font-family:var(--font-mono);font-size:11px;">' + esc(k) + '</span>' +
+          '<input class="pmval" value="' + esc(obj[k] == null ? "" : obj[k]) + '" placeholder="기본값/고정값" style="flex:1;min-width:0;">' +
+          '<button type="button" class="pmtoggle btn btn-secondary" data-on="' + (on ? "1" : "0") + '" ' +
+          'style="flex:0 0 auto;padding:3px 8px;font-size:11px;' + (on ? "background:var(--accent,#3B82F6);color:#fff;" : "") + '">' +
+          (on ? "입력" : "고정") + '</button></div>';
+      });
+    });
+    if (!prows) prows = '<p class="prop-empty" style="font-size:12px;">스키마 파라미터가 없습니다.</p>';
     body.innerHTML =
       '<div class="nhead" style="margin-bottom:14px;"><span class="badge ' + mlow(op.method) + '">' + esc((op.method || "GET").toUpperCase()) + '</span><span style="font-family:var(--font-mono);font-size:11px;color:var(--text-2);">' + esc(op.path) + '</span></div>' +
       '<div class="field"><label>Base URL</label><input id="pBase" value="' + esc(node.data.base_url || "") + '" placeholder="비우면 자동(오퍼레이션→기본값)"></div>' +
-      '<div class="field"><label>파라미터 (params JSON)</label><textarea id="pParams" rows="9">' + esc(JSON.stringify(node.data.params || {}, null, 2)) + "</textarea></div>" +
-      '<button class="btn btn-secondary" id="pApply">적용</button>' +
+      '<div class="sec-label">파라미터</div>' +
+      '<p style="font-size:11.5px;color:var(--text-3);margin:0 0 8px;line-height:1.5;"><b>고정</b>=값을 항상 사용(MCP 입력에서 숨김). <b>입력</b>=MCP 도구 인자로 노출(값이 있으면 기본값). 상류 출력 연결은 엣지 매핑을 사용하세요.</p>' +
+      '<div id="pmRows">' + prows + '</div>' +
+      '<details style="margin-top:10px;"><summary style="font-size:11.5px;color:var(--text-3);cursor:pointer;">고급: params JSON 직접 편집</summary>' +
+      '<textarea id="pParams" rows="7" style="margin-top:6px;">' + esc(JSON.stringify(params, null, 2)) + '</textarea></details>' +
+      '<button class="btn btn-secondary" id="pApply" style="margin-top:10px;">적용</button>' +
       '<div class="sec-label" style="margin-top:16px;">리턴값 미리보기</div><div id="retBox"><div class="prop-empty">불러오는 중…</div></div>';
     empty.style.display = "none"; body.style.display = "block";
     if (op && op.id != null) loadReturnPreview(op.id);
+    // 고정/입력 토글
+    body.querySelectorAll(".pmtoggle").forEach((btn) => btn.addEventListener("click", () => {
+      const on = btn.dataset.on === "1" ? "0" : "1"; btn.dataset.on = on;
+      btn.textContent = on === "1" ? "입력" : "고정";
+      btn.style.cssText = "flex:0 0 auto;padding:3px 8px;font-size:11px;" + (on === "1" ? "background:var(--accent,#3B82F6);color:#fff;" : "");
+    }));
     document.getElementById("pApply").addEventListener("click", () => {
       const nd = editor.drawflow.drawflow.Home.data[id];
       nd.data.base_url = document.getElementById("pBase").value.trim() || null;
-      try { nd.data.params = JSON.parse(document.getElementById("pParams").value || "{}"); }
+      const adv = document.getElementById("pParams").value;
+      // 고급 JSON 을 베이스로 두고(없으면 기존 params), 구조 행의 값/토글을 덮어씀
+      let base;
+      try { base = JSON.parse(adv || "{}"); }
       catch (e) { toast("params JSON 오류: " + e.message, "fail"); return; }
+      base.path = base.path || {}; base.query = base.query || {}; base.header = base.header || {};
+      const inputKeys = [];
+      body.querySelectorAll(".pmrow").forEach((row) => {
+        const sec = row.dataset.sec, k = row.dataset.key;
+        const val = row.querySelector(".pmval").value;
+        base[sec] = base[sec] || {}; base[sec][k] = val;
+        if (row.querySelector(".pmtoggle").dataset.on === "1") inputKeys.push(sec + "." + k);
+      });
+      if (inputKeys.length) base._input = inputKeys; else delete base._input;
+      nd.data.params = base;
       setDirty(true); toast("적용했습니다");
     });
   } else if (node.class === "condition") {

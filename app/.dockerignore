@@ -1,0 +1,22 @@
+# 가상환경/캐시 (이미지에서 재설치)
+venv/
+.venv/
+__pycache__/
+**/__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# 로컬 DB/백업 — 런타임 볼륨(/data)에서 관리
+*.db
+*.db.bak_*
+mcp_provider.db
+
+# 로컬 설정/로그
+.env
+*.log
+
+# 문서/잡파일 (선택)
+*.zip
+.git/
+.DS_Store
+Thumbs.db
