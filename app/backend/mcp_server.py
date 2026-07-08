@@ -281,6 +281,34 @@ _RESERVED_OUT_KEYS = {"dry_run", "status", "planned_actions", "preview", "note",
 _SPEC_SCHEMAS_CACHE: dict[int, dict] = {}  # spec_id -> components/schemas
 
 
+def _spec_raw(spec_id):
+    """스펙 원문(raw_content) 조회. get_spec_raw 가 있으면 사용, 없으면 DB 직접 조회.
+
+    구버전 specs_repo(get_spec_raw 미존재)에서도 단일 파일 교체만으로 동작하도록 self-contained.
+    """
+    fn = getattr(specs_repo, "get_spec_raw", None)
+    if fn is not None:
+        try:
+            return fn(spec_id)
+        except Exception:
+            pass
+    try:
+        from backend.db import connect
+        conn = connect()
+        try:
+            row = conn.execute("SELECT raw_content FROM specs WHERE id=?", (spec_id,)).fetchone()
+            if not row:
+                return None
+            try:
+                return row["raw_content"]
+            except Exception:
+                return row[0]
+        finally:
+            conn.close()
+    except Exception:
+        return None
+
+
 def _spec_schemas(spec_id) -> dict:
     """스펙 원문(raw_content)의 components/schemas 를 로드(캐시)."""
     if spec_id is None:
@@ -289,7 +317,7 @@ def _spec_schemas(spec_id) -> dict:
         return _SPEC_SCHEMAS_CACHE[spec_id]
     comps: dict = {}
     try:
-        raw = specs_repo.get_spec_raw(spec_id)
+        raw = _spec_raw(spec_id)
         if raw:
             comps = ((json.loads(raw).get("components") or {}).get("schemas")) or {}
     except Exception:
@@ -376,27 +404,4 @@ def build_output_schema(graph: dict):
     rs = op.get("response_schema")
     if not isinstance(rs, dict) or not rs:
         return None
-    resolved = _resolve_refs(rs, _spec_schemas(op.get("spec_id")))
-    if not isinstance(resolved, dict) or not resolved:
-        return None
-    schema = _relax_schema(resolved)
-    if schema.get("type") != "object":
-        # 비오브젝트 응답은 result 로 래핑(outputSchema 는 object 여야 안전)
-        schema = {"type": "object", "properties": {"result": schema}}
-    schema.setdefault("additionalProperties", True)
-    props = schema.get("properties")
-    if isinstance(props, dict):
-        for k in list(props):
-            if k in _RESERVED_OUT_KEYS:  # dry_run/오류 키와의 타입 충돌 방지
-                props.pop(k, None)
-    return schema
-
-
-def build_tools() -> None:
-    _TOOLS.clear()
-    _SPEC_SCHEMAS_CACHE.clear()
-    for w in load_exposed_workflows():
-        graph = wf_repo.get_graph(w["id"])
-        if graph is None:
-            continue
-    
+    resolved = _resolve_refs(rs, _spec_sc
