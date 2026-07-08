@@ -1,0 +1,54 @@
+# MCP Provider 배포 — MCP HTTP 서버 + 관리 UI (공유 DB)
+# TLS 는 외부 리버스 프록시(Nginx/Caddy/ALB)가 종단. 컨테이너는 HTTP 로만 노출.
+#
+#   docker compose --env-file .env up -d --build
+#
+# 두 서비스가 같은 ./data 볼륨(SQLite)을 공유 → UI 편집이 MCP 노출에 즉시 반영.
+services:
+  mcp:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: mcp-provider:latest
+    command: ["python", "-m", "backend.mcp_http_server"]
+    env_file: [.env]
+    environment:
+      MCP_HTTP_HOST: "0.0.0.0"
+      MCP_HTTP_PORT: "9900"
+      MCP_HTTP_PATH: "/mcp"
+      MCP_DB_PATH: "/data/mcp_provider.db"
+      # MCP_AUTH_TOKEN / MCP_GROUP / MCP_ALLOWED_HOSTS 는 .env 에서 주입
+    ports:
+      - "${MCP_PUBLIC_PORT:-9900}:9900"   # 리버스 프록시가 이 포트로 프록시
+    volumes:
+      - ./data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:9900/healthz').status==200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  ui:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: mcp-provider:latest
+    command: ["uvicorn", "backend.app:app", "--host", "0.0.0.0", "--port", "9090", "--proxy-headers", "--forwarded-allow-ips=*"]
+    env_file: [.env]
+    environment:
+      MCP_DB_PATH: "/data/mcp_provider.db"
+    ports:
+      - "${UI_PUBLIC_PORT:-9090}:9090"
+    volumes:
+      - ./data:/data
+    depends_on:
+      - mcp
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:9090/healthz').status==200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
