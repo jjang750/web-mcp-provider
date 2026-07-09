@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import os
 from typing import Optional
+from urllib.parse import parse_qsl, urlencode
 
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -53,6 +54,28 @@ app = FastAPI(
     docs_url=None,
     redoc_url=None,
 )
+
+
+class StripEmptyQueryMiddleware:
+    """빈 값('key=')으로 전달된 쿼리 파라미터를 라우팅 전에 제거.
+
+    MCP 에디터/일부 클라이언트는 선택 파라미터를 빈 문자열('')로 함께 보낸다.
+    이 경우 백엔드가 '값 있음'으로 오인해 필터가 걸리고 결과가 0건이 되므로,
+    요청 단계에서 빈 값 파라미터를 제거해 '미지정(None)'과 동일하게 처리한다.
+    필수 파라미터가 빈 값이면 제거되어 FastAPI가 422(누락)로 응답한다.
+    """
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope.get("type") == "http" and scope.get("query_string"):
+            pairs = parse_qsl(scope["query_string"].decode("latin-1"), keep_blank_values=True)
+            kept = [(k, v) for k, v in pairs if v != ""]
+            if len(kept) != len(pairs):
+                scope = dict(scope)
+                scope["query_string"] = urlencode(kept).encode("latin-1")
+        await self.app(scope, receive, send)
 
 
 def _resolve_server_url(request: Request) -> str:
@@ -97,6 +120,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+# 빈 쿼리 파라미터('key=') 제거 — MCP 에디터가 선택 파라미터를 빈 값으로 보내도
+# 필터가 걸리지 않도록 라우팅 전에 정리(재발 방지).
+app.add_middleware(StripEmptyQueryMiddleware)
 
 APT_NAME = "○○아파트"
 
@@ -208,10 +234,12 @@ def _check_aptcd(aptcd: str) -> None:
 
 
 def _filter_units(aptcd: str, dong: Optional[str] = None, ho: Optional[str] = None) -> list[dict]:
+    # 빈 문자열('')은 '미지정'과 동일하게 취급(필터 미적용).
+    # MCP 에디터가 선택 파라미터를 빈 값으로 전송해도 0건이 되지 않도록 방지.
     out = [u for u in _UNITS if u["aptcd"] == aptcd]
-    if dong is not None:
+    if dong:
         out = [u for u in out if u["dong"] == dong]
-    if ho is not None:
+    if ho:
         out = [u for u in out if u["ho"] == ho]
     return out
 
@@ -685,7 +713,7 @@ def occp_unit(
 ):
     _check_aptcd(aptcd)
     units = _filter_units(aptcd, dong, ho)
-    if dong is not None and ho is not None:
+    if dong and ho:
         if not units:
             raise HTTPException(status_code=404, detail=f"세대 없음: {aptcd} {dong}-{ho}")
         return _unit_view(units[0])
