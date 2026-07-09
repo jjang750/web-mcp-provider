@@ -28,6 +28,18 @@ def build_url(base_url, path):
     return urljoin(base, rel)
 
 
+def _drop_empty_query(query):
+    """값이 없는(None/빈 문자열) 쿼리 파라미터를 제거.
+
+    표준 클라이언트(Swagger UI 등)는 값 없는 선택 파라미터를 전송하지 않는다.
+    executor 도 내부적으로 ''을 '미입력'으로 취급하므로(자동 주입 로직) 전송 단계에서도
+    동일하게 맞춰, 'key=' 형태의 빈 값이 백엔드에서 필터로 오인되는 것을 방지한다.
+    """
+    if not query:
+        return {}
+    return {k: v for k, v in dict(query).items() if v not in (None, "")}
+
+
 def _apply_auth(auth, headers, params):
     if not auth:
         return
@@ -58,10 +70,11 @@ def preview(method, base_url, path, *, path_params=None, query=None, header=None
         for k, v in path_params.items():
             url = url.replace(f"{{{k}}}", str(v))
     _guard_protocol(url)
+    _q = _drop_empty_query(query)
     return {
         "method": method.upper(),
         "url": url,
-        "query": dict(query) if query else None,
+        "query": _q or None,
         "header": dict(header) if header else None,
         "body": body if body not in (None, "") else None,
         "auth_type": (auth or {}).get("type"),
@@ -75,7 +88,7 @@ def call(method, base_url, path, *, path_params=None, query=None, header=None, b
             url = url.replace(f"{{{k}}}", str(v))
     _guard_protocol(url)
     headers = dict(header or {})
-    params = dict(query or {})
+    params = _drop_empty_query(query)
     _apply_auth(auth, headers, params)
     owns = client is None
     cli = client or httpx.Client(timeout=timeout, trust_env=TRUST_ENV)
