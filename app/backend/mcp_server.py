@@ -187,30 +187,26 @@ def _collect_input_params(graph: dict) -> list[dict]:
         if not op:
             continue
         params = n.get("params") or {}
-        input_keys = set(params.get("_input") or [])
         for ps in (op.get("params_schema") or []):
             loc, pname = ps.get("in"), ps.get("name")
             if loc not in ("path", "query", "header"):
                 continue
-            is_input = f"{loc}.{pname}" in input_keys
             existing = (params.get(loc) or {}).get(pname)
-            if not is_input:
-                if existing not in (None, ""):
-                    continue
-                if (nid, loc, pname) in mapped:
-                    continue
+            is_mapped = (nid, loc, pname) in mapped
             sc = ps.get("schema") or {}
             t = sc.get("type") or "string"
             if t not in ("string", "integer", "number", "boolean"):
                 t = "string"
+            # 정책: 선언된 path/query/header 파라미터는 정적값 유무와 무관하게 항상 노출.
+            #        정적값이 있으면 default 로만 제공(테스트값=기본값, 호출 시 override 가능).
             item = {
                 "nid": nid, "loc": loc, "pname": pname, "type": t,
                 "description": ps.get("description") or pname,
-                "required": bool(ps.get("required") and nid in guaranteed),
+                "required": bool(ps.get("required") and nid in guaranteed and not is_mapped),
             }
-            if is_input and existing not in (None, ""):
-                item["default"] = existing   # 입력 표시 + 기존값 → 기본값
-                item["required"] = False      # 기본값 있으면 미전달 허용
+            if existing not in (None, ""):
+                item["default"] = existing   # 정적/테스트값 → 기본값(전달 없으면 이 값 사용)
+                item["required"] = False       # 기본값 있으면 미전달 허용
             items.append(item)
     return items
 
@@ -386,22 +382,189 @@ def _terminal_operation_id(graph: dict):
     return api[-1]["operation_id"] if api else None
 
 
+_FALLBACK_OUTPUT_SCHEMA = {
+    "type": "object",
+    "description": "응답 구조가 스펙에 정의되지 않았습니다(임의 객체). 실제 응답 본문이 그대로 반환됩니다.",
+    "additionalProperties": True,
+}
+
+
 def build_output_schema(graph: dict):
     """종단 오퍼레이션의 응답 스키마를 $ref 해소·완화해 outputSchema 로 생성.
 
-    반환: JSON Schema(object) 또는 None(응답 스키마 없음/해소 불가).
+    항상 JSON Schema(object)를 반환한다(응답 스키마가 없거나 해소 불가하면 허용형 폴백).
     검증 안전: 성공(응답 본문)·dry_run·오류 페이로드가 모두 통과하도록 완화한다.
     """
     opid = _terminal_operation_id(graph)
     if opid is None:
-        return None
+        return dict(_FALLBACK_OUTPUT_SCHEMA)
     try:
         op = specs_repo.get_operation(opid)
     except Exception:
         op = None
     if not op:
-        return None
+        return dict(_FALLBACK_OUTPUT_SCHEMA)
     rs = op.get("response_schema")
     if not isinstance(rs, dict) or not rs:
-        return None
-    resolved = _resolve_refs(rs, _spec_sc
+        return dict(_FALLBACK_OUTPUT_SCHEMA)
+    resolved = _resolve_refs(rs, _spec_schemas(op.get("spec_id")))
+    if not isinstance(resolved, dict) or not resolved:
+        return dict(_FALLBACK_OUTPUT_SCHEMA)
+    schema = _relax_schema(resolved)
+    if schema.get("type") != "object":
+        # 비오브젝트 응답은 result 로 래핑(outputSchema 는 object 여야 안전)
+        schema = {"type": "object", "properties": {"result": schema}}
+    schema.setdefault("additionalProperties", True)
+    props = schema.get("properties")
+    if isinstance(props, dict):
+        for k in list(props):
+            if k in _RESERVED_OUT_KEYS:  # dry_run/오류 키와의 타입 충돌 방지
+                props.pop(k, None)
+    return schema
+
+
+def build_tools() -> None:
+    _TOOLS.clear()
+    _SPEC_SCHEMAS_CACHE.clear()
+    for w in load_exposed_workflows():
+        graph = wf_repo.get_graph(w["id"])
+        if graph is None:
+            continue
+        tname = build_tool_name(w["id"], w["name"], w.get("mcp_tool_name"))
+        schema, alias = build_schema_and_alias(graph)
+        # dry-run 인자 노출: true 면 변경성 호출을 실행하지 않고 실행 계획만 반환
+        schema.setdefault("properties", {})["dry_run"] = {
+            "type": "boolean",
+            "description": "true 이면 변경(POST/PUT/DELETE/PATCH) 호출을 실행하지 않고 실행 계획(planned_actions)만 반환합니다. 먼저 dry_run=true 로 계획을 확인한 뒤, 사용자 승인 시 dry_run 없이(또는 false) 다시 호출해 실제 실행하세요.",
+        }
+        _TOOLS[tname] = {
+            "wf": w,
+            "graph": graph,
+            "schema": schema,
+            "alias": alias,  # 노출키(평면) → '<nid>.<loc>.<pname>'
+            "output_schema": build_output_schema(graph),  # Tool.outputSchema (항상 존재)
+        }
+
+
+def ensure_tools(force: bool = False) -> bool:
+    """노출 워크플로우 변경 시그니처를 확인해 바뀐 경우(또는 force)에만 재빌드.
+
+    반환: 재빌드했으면 True(=목록 변경됨). 변경 없으면 False(가벼운 1쿼리만 수행).
+    """
+    global _TOOLS_SIG
+    try:
+        sig = wf_repo.change_signature(MCP_GROUP)
+    except Exception:
+        sig = None
+    if not force and _TOOLS and sig is not None and sig == _TOOLS_SIG:
+        return False
+    build_tools()
+    _TOOLS_SIG = sig
+    return True
+
+
+async def _poll_changes() -> None:
+    """주기적으로 변경을 감지해 지원 클라이언트에 tools/list_changed 알림.
+
+    list 호출이 없어도 이미 연결된 클라이언트가 재시작 없이 갱신되도록 함.
+    세션이 아직 없거나 알림 전송이 실패해도(클라이언트 미지원 등) 조용히 무시.
+    """
+    while True:
+        await asyncio.sleep(POLL_SECS)
+        try:
+            if ensure_tools() and _SESSION is not None:
+                await _SESSION.send_tool_list_changed()
+        except Exception:
+            pass
+
+
+# ---------- MCP 핸들러 ----------
+@server.list_tools()
+async def list_tools() -> list[types.Tool]:
+    global _SESSION
+    ensure_tools()  # 변경 시그니처 확인 → 바뀐 경우에만 재빌드(가벼움)
+    try:  # 백그라운드 알림에 쓸 현재 세션 캡처
+        _SESSION = server.request_context.session
+    except Exception:
+        pass
+    tools: list[types.Tool] = []
+    supports_output = "outputSchema" in types.Tool.model_fields
+    for tname, info in _TOOLS.items():
+        kwargs = dict(
+            name=tname,
+            description=(info["wf"].get("description") or info["wf"]["name"]),
+            inputSchema=info["schema"],
+        )
+        out = info.get("output_schema")
+        if out and supports_output:  # 구버전 SDK 호환: 필드 있을 때만 부착
+            kwargs["outputSchema"] = out
+        tools.append(types.Tool(**kwargs))
+    return tools
+
+
+@server.call_tool()
+async def call_tool(name: str, arguments: dict | None):
+    info = _TOOLS.get(name)
+    if info is None:
+        return [types.TextContent(type="text", text=f"알 수 없는 도구: {name}")]
+    args = dict(arguments or {})
+    # 예약 인자 dry_run 은 그래프 파라미터로 주입하지 않고 실행 모드로만 사용
+    dry_run = bool(args.pop("dry_run", False))
+    # 평면 인자 이름(aptcd, dong ...) → 실제 노드 파라미터 키('<nid>.<loc>.<pname>') 로 되돌림.
+    # 별칭에 없는 키(노드 스코프 키 직접 전달 등)는 그대로 통과.
+    alias = info.get("alias") or {}
+    resolved = {alias.get(k, k): v for k, v in args.items()}
+    graph = apply_tool_args(info["graph"], resolved)
+    result = executor.run_workflow(
+        graph,
+        initial_input=args,
+        auth=None,
+        operation_resolver=specs_repo.get_operation,
+        dry_run=dry_run,
+    )
+    try:
+        exec_repo.save(result, source="mcp-dryrun" if dry_run else "mcp", tool_name=name)  # 감사 로그
+    except Exception:
+        pass
+    if dry_run:
+        payload = {
+            "dry_run": True,
+            "status": result.get("status"),
+            "planned_actions": result.get("planned_actions", []),
+            "preview": result.get("final"),
+            "note": "실행되지 않았습니다. planned_actions 를 사용자에게 보여주고 승인받은 뒤 dry_run 없이 다시 호출하세요.",
+        }
+    elif result.get("status") == "success":
+        payload = result.get("final")
+    else:
+        failed = next((l for l in result.get("logs", []) if l.get("status") == "failed"), None)
+        payload = {
+            "status": "failed",
+            "node": failed.get("node_key") if failed else None,
+            "error": failed.get("error") if failed else None,
+        }
+    # content(텍스트)는 기존과 동일(하위호환). outputSchema 검증·구조화 소비를 위해
+    # structuredContent 도 함께 반환(dict 가 아니면 result 로 래핑).
+    content = [types.TextContent(type="text", text=json.dumps(payload, ensure_ascii=False, indent=2))]
+    structured = payload if isinstance(payload, dict) else {"result": payload}
+    return content, structured
+
+
+async def main() -> None:
+    init_db()
+    ensure_tools(force=True)  # 기동 시 1회 빌드 + 시그니처 기록
+    init_opts = server.create_initialization_options(
+        # tools/list_changed 알림 capability 광고 → 지원 클라이언트가 자동 갱신
+        notification_options=NotificationOptions(tools_changed=True),
+    )
+    async with stdio_server() as (read_stream, write_stream):
+        poller = asyncio.create_task(_poll_changes()) if POLL_SECS > 0 else None
+        try:
+            await server.run(read_stream, write_stream, init_opts)
+        finally:
+            if poller is not None:
+                poller.cancel()
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
