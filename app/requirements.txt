@@ -7,3 +7,5 @@ pyyaml
 python-multipart
 pytest
 mcp
+PyJWT>=2.8
+python-dotenv>=1.0
