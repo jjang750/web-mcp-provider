@@ -1,0 +1,41 @@
+version: 0.0
+os: linux
+
+# 저장소 전체를 EC2 배포 폴더로 복사한다.
+# 실제 앱 코드는 <destination>/app/ 아래에 위치한다.
+files:
+  - source: /
+    destination: /data/web-mcp-provider
+file_exists_behavior: OVERWRITE
+
+permissions:
+  - object: /data/web-mcp-provider
+    pattern: "**"
+    owner: ec2-user
+    group: ec2-user
+    mode: 755
+    type:
+      - file
+      - directory
+
+hooks:
+  # 1) 런타임 준비(python3.11, 배포 디렉터리)
+  BeforeInstall:
+    - location: scripts/before_install.sh
+      timeout: 300
+      runas: root
+  # 2) venv 구성 + 의존성 설치 + .env 적용 + 런타임 디렉터리 준비
+  AfterInstall:
+    - location: scripts/after_install.sh
+      timeout: 600
+      runas: root
+  # 3) 기존 프로세스 중지 (이전 리비전 기준 실행 → 최초 배포 시 자동 skip)
+  ApplicationStop:
+    - location: scripts/stop.sh
+      timeout: 120
+      runas: ec2-user
+  # 4) 프로세스 백그라운드 기동/재기동 (nohup/setsid, systemd 미사용)
+  ApplicationStart:
+    - location: scripts/start.sh
+      timeout: 180
+      runas: ec2-user
