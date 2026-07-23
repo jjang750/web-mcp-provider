@@ -120,6 +120,26 @@ PYTHONPATH=. MCP_GROUP=xperp npx @modelcontextprotocol/inspector .venv/bin/pytho
 | `MCP_DEFAULT_BASE_URL` | `http://localhost:8000` | 노드/오퍼레이션에 base_url이 없을 때 폴백 |
 | `MCP_HTTP_TRUST_ENV` | `0` | 1이면 엔진 HTTP 호출에 시스템 프록시(env) 사용 |
 | `MCP_GROUP` / `MCP_SERVER_NAME` | (없음) | MCP 서버 그룹 필터 / 서버 이름 |
+| `MCP_AUTH_TOKEN` | (없음) | MCP HTTP 엔드포인트 `Authorization: Bearer` 검증(기계 클라이언트용) |
+| `APP_AUTH_USER` / `APP_AUTH_PASSWORD` | (없음) | 관리 UI 로그인 계정(설정 시 인증 활성화) |
+| `APP_JWT_SECRET` | (없음) | UI JWT 서명 시크릿(긴 랜덤 문자열, 인증 시 필수) |
+| `APP_JWT_EXPIRE_HOURS` | `24` | 로그인 후 절대 상한(시간) |
+| `APP_SESSION_IDLE_MINUTES` | `30` | 무활동 세션 타임아웃(분, 슬라이딩) |
+| `APP_COOKIE_SECURE` | `false` | HTTPS 환경이면 `true`(쿠키 Secure 플래그) |
+
+## 관리 UI 인증 (JWT)
+관리 콘솔(포트 9090)은 `APP_AUTH_USER`/`APP_AUTH_PASSWORD` 설정 시 로그인 화면(`/login`)으로 보호됩니다.
+- HttpOnly 쿠키에 JWT 저장 → same-origin `fetch` 에 자동 전송(프론트 무수정).
+- 무활동 30분 타임아웃(슬라이딩) + 로그인 후 24h 절대 상한.
+- `.env` 는 `app/.env` 에서 자동 로드(python-dotenv). 자격증명 미설정 시 무인증(기존 동작).
+- MCP 엔드포인트(포트 9900)의 `MCP_AUTH_TOKEN`(Bearer)과는 **별개 계층**입니다(사람용 vs 기계용).
+
+## AWS 배포 (CodePipeline / CodeDeploy)
+EC2(Amazon Linux 2023)에 CodeDeploy 로 배포하고 UI·MCP 를 venv 파이썬 프로세스로 기동합니다.
+- 배포 명세: 루트 `appspec.yml`, 훅 스크립트 `scripts/*.sh` (systemd 미사용, `setsid` 백그라운드).
+- 배포 폴더: `/data/web-mcp-provider` (앱은 `app/` 하위).
+- 상세 절차·사전조건: `HANDOFF_DEPLOY.md`
+- 인프라(ALB·보안그룹·IAM·DNS) 요구사항(MSP 전달용): `AWS_INFRA_MSP.md`
 
 ## Dry-run (실행 계획 → 확인 → 실행)
 변경성 작업을 곧바로 반영하지 않고 **먼저 실행 계획만 받아 확인**한 뒤 실행하는 패턴을 지원합니다.
